@@ -7,9 +7,12 @@ include = [
     "src/main.rs",
     "src/server/server.rs",
     "src/server/mod.rs",
-    "src/server/config/config.rs",
-    "src/server/config/mod.rs",
-    "src/server/map/map.rs",
-    "src/server/map/mod.rs",
+    "src/server/config.rs",
+    "src/server/map.rs",
+    "src/server/client/client.rs",
+    "src/server/client/mod.rs",
     "Cargo.toml",
 ]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }

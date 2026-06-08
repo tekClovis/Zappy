@@ -11,7 +11,7 @@ SERV_BIN = $(NAME)_server
 SERV_DIR = server
 SERV_MANIFEST = $(SERV_DIR)/Cargo.toml
 SERV_TARGET_DIR = $(SERV_DIR)/target
-SERV_TARGET = $(SERV_TARGET_DIR)/release/$(SERV_BIN)
+SERV_TARGET = $(SERV_TARGET_DIR)/debug/$(SERV_BIN)
 
 AI_BIN = $(NAME)_ai
 SRC_AI = AI/main.cpp \
@@ -28,16 +28,21 @@ AI_INCLUDES = -I./AI
 GUI_INCLUDES = -I./GUI
 COMMON_INCLUDES = -I./include
 
+MAKEFLAGS = --colors=auto
+
 %.o: %.cpp
 	g++ -fPIC -c $< -o $@ $(CFLAGS) $(WARNINGS)
 
 all:
-	$(MAKE) -j zappy_server
-	$(MAKE) -j zappy_ai
-	$(MAKE) -j zappy_gui
+	$(MAKE) $(MAKEFLAGS) zappy_server
+	$(MAKE) $(MAKEFLAGS) zappy_ai
+	$(MAKE) $(MAKEFLAGS) zappy_gui
+
+fast: MAKEFLAGS += -j
+fast: all
 
 zappy_server:
-	cargo build --manifest-path $(SERV_MANIFEST) --release
+	cargo build --manifest-path $(SERV_MANIFEST)
 	cp -f $(SERV_TARGET) $(SERV_BIN)
 
 zappy_ai: $(OBJ_AI)
@@ -61,4 +66,4 @@ fclean: clean
 
 re:	fclean all
 
-.PHONY: debug clean fclean re
+.PHONY: all fast zappy_server zappy_ai zappy_gui debug clean fclean re
