@@ -15,4 +15,3 @@ include = [
 ]
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
