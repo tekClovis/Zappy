@@ -8,9 +8,16 @@ mod server;
 
 use server::Server;
 
+fn main() -> std::io::Result<()> {
+    let mut server = Server::new();
 
-fn main() {
-    let server = Server::new();
-
-    server.start();
+    if let Err(e) = server.start() {
+        eprintln!("Failed to start the server: {}", e);
+        return Err(e);
+    }
+    if let Err(e) = server.run() {
+        eprintln!("Server Failed during execution: {}", e);
+        return Err(e);
+    }
+    Ok(())
 }
