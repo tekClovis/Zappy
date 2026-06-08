@@ -1,0 +1,15 @@
+[package]
+name = "zappy_server"
+version = "0.1.0"
+edition = "2024"
+
+include = [
+    "src/main.rs",
+    "src/server/server.rs",
+    "src/server/mod.rs",
+    "src/server/config/config.rs",
+    "src/server/config/mod.rs",
+    "src/server/map/map.rs",
+    "src/server/map/mod.rs",
+    "Cargo.toml",
+]

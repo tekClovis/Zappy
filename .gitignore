@@ -1,0 +1,7 @@
+*.o
+*key*
+.vscode
+server/target
+zappy_server
+zappy_ai
+zappy_gui
