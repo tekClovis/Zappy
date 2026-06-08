@@ -1,0 +1,69 @@
+name: CI
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+env:
+  MIRROR_SSH: git@github.com:EpitechPGE2-2025/G-YEP-400-LIL-4-1-zappy-11.git
+  EXECUTABLES: zappy,test
+jobs:
+  check_program_compilation:
+    if: github.repository != 'EpitechPGE2-2025/G-YEP-400-LIL-4-1-zappy-11'
+    runs-on: ubuntu-latest
+    container: epitechcontent/epitest-docker:latest
+    steps:
+      - name: fetching
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: make
+        run: timeout 2m make
+        shell: bash
+      - name: check_executables
+        run: |
+          files=$(echo "$EXECUTABLES" | tr ',' ' ')
+          for file in $files; do
+            if [[ -e "$file" ]]; then
+              echo "::notice::$file is here"
+            else
+              echo "::error::$file is missing"
+              exit 1
+            fi
+          done
+        shell: bash
+      - name: make clean
+        run: make clean
+        shell: bash
+  
+  # run_tests:
+  #   if: github.repository != 'EpitechPGEPromo2029/B-DOP-200-REN-2-1-chocolatine-clovis.nedelec'
+  #   needs:
+  #     - check_program_compilation
+  #   runs-on: ubuntu-latest
+  #   container: epitechcontent/epitest-docker:latest
+  #   steps:
+  #     - name: fetching
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: ${{ github.ref }}
+  #     - name: make tests_run
+  #       run: |
+  #         cd $(pwd)
+  #         timeout 2m make tests_run
+
+  push_to_mirror:
+    if: ${{ github.repository != 'EpitechPGE2-2025/G-YEP-400-LIL-4-1-zappy-11' && github.event_name == 'push' }}
+    needs:
+      - check_program_compilation
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetching
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: mirroring
+        uses: pixta-dev/repository-mirroring-action@v1
+        with:
+          target_repo_url: ${{ env.MIRROR_SSH }}
+          ssh_private_key: ${{ secrets.GIT_SSH_PRIVATE_KEY }}
