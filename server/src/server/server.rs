@@ -7,7 +7,7 @@
 
 use super::config::Config;
 use super::map::Map;
-use super::client::{AIClient, Client};
+use super::client::client;
 use std::io::{ Result, ErrorKind};
 use std::net::TcpListener;
 
@@ -15,7 +15,7 @@ pub struct Server {
     _config: Config,
     _map: Map,
     _listener: Option<TcpListener>,
-    _clients: Vec<AIClient>,
+    _clients: Vec<Box<dyn client::Client>>,
 }
 
 impl Server {
@@ -45,7 +45,7 @@ impl Server {
         let listener = TcpListener::bind(format!("127.0.0.1:{}", self._config.port))?;
 
         self._listener = Some(listener);
-        println!("Server started on porta {}", self._listener.as_ref().unwrap().local_addr()?.port());
+        println!("Server started on port {}", self._listener.as_ref().unwrap().local_addr()?.port());
         self._listener.as_ref().unwrap().set_nonblocking(true)?;
         Ok(())
     }
@@ -62,7 +62,7 @@ impl Server {
                 Ok((stream, addr)) => {
                     println!("New client: {}", addr);
                     stream.set_nonblocking(true).unwrap();
-                    let mut client: AIClient = AIClient::new(stream);
+                    let mut client: Box<dyn client::Client> = client::make_client("square", stream).unwrap();
                     client.write(format!("Successfully connected to the server at {}:{}", listener.local_addr()?.ip(), listener.local_addr()?.port()).as_str())?;
                     self._clients.push(client);
                 }
