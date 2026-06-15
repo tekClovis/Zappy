@@ -1,4 +1,5 @@
 *.o
+*.md
 *key*
 .vscode
 server/target

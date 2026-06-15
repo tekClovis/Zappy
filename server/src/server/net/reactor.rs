@@ -1,0 +1,206 @@
+//
+// EPITECH PROJECT, 2026
+// Zappy
+// File description:
+// Reactor (poll loop + fd registry) — replaces the old busy loop
+//
+
+use std::collections::HashMap;
+use std::io::{ErrorKind, Result};
+use std::net::TcpListener;
+use std::os::fd::AsRawFd;
+use std::time::Instant;
+
+use crate::server::game::world::World;
+use crate::server::net::connection::{ConnState, Connection};
+use crate::server::scheduler::{Event, Scheduler};
+
+pub struct Reactor {
+    listener: TcpListener,
+    conns: HashMap<i32, Connection>,
+    fds: Vec<libc::pollfd>,
+    sched: Scheduler,
+    world: World,
+    f: u32,
+    max_clients: usize,
+    next_player: u32,
+}
+
+impl Reactor {
+    pub fn new(listener: TcpListener, f: u32, max_clients: usize, world: World) -> Result<Self> {
+        listener.set_nonblocking(true)?;
+        let mut sched = Scheduler::new();
+        sched.schedule_units(20, f, Event::RespawnResources);
+        Ok(Self {
+            fds: vec![libc::pollfd {
+                fd: listener.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            }],
+            listener,
+            conns: HashMap::new(),
+            sched,
+            world,
+            f,
+            max_clients,
+            next_player: 1,
+        })
+    }
+
+    pub fn run(&mut self) -> Result<()> {
+        loop {
+            self.refresh_events();
+
+            let timeout_ms = match self.sched.next_timeout() {
+                Some(d) => d.as_millis().min(i32::MAX as u128) as i32,
+                None => -1,
+            };
+
+            let nfds = self.fds.len() as libc::nfds_t;
+            let n = unsafe { libc::poll(self.fds.as_mut_ptr(), nfds, timeout_ms) };
+            if n < 0 {
+                let err = std::io::Error::last_os_error();
+                if err.kind() == ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(err);
+            }
+
+            self.handle_io();
+            self.handle_due_events();
+            self.reap_closed();
+        }
+    }
+
+
+    fn refresh_events(&mut self) {
+        let listener_fd = self.listener.as_raw_fd();
+        for i in 0..self.fds.len() {
+            let fd = self.fds[i].fd;
+            let mut events = libc::POLLIN;
+            if fd != listener_fd && self.conns.get(&fd).is_some_and(|c| c.wants_write()) {
+                events |= libc::POLLOUT;
+            }
+            self.fds[i].events = events;
+            self.fds[i].revents = 0;
+        }
+    }
+
+    fn handle_io(&mut self) {
+        let listener_fd = self.listener.as_raw_fd();
+        let mut inbound: Vec<(i32, Vec<String>)> = Vec::new();
+
+        let len = self.fds.len();
+        for i in 0..len {
+            let pfd = self.fds[i];
+            if pfd.revents == 0 {
+                continue;
+            }
+            if pfd.fd == listener_fd {
+                self.accept_new();
+                continue;
+            }
+            if let Some(conn) = self.conns.get_mut(&pfd.fd) {
+                if pfd.revents & (libc::POLLIN | libc::POLLHUP) != 0 {
+                    let lines = conn.on_readable();
+                    if !lines.is_empty() {
+                        inbound.push((pfd.fd, lines));
+                    }
+                }
+                if pfd.revents & libc::POLLOUT != 0 {
+                    conn.flush();
+                }
+            }
+        }
+
+        for (fd, lines) in inbound {
+            for line in lines {
+                self.process_line(fd, line);
+            }
+        }
+    }
+
+    fn accept_new(&mut self) {
+        loop {
+            match self.listener.accept() {
+                Ok((stream, _addr)) => {
+                    if let Ok(mut conn) = Connection::new(stream) {
+                        let fd = conn.stream.as_raw_fd();
+                        conn.send_line("WELCOME");
+                        self.conns.insert(fd, conn);
+                        self.fds.push(libc::pollfd {
+                            fd,
+                            events: libc::POLLIN,
+                            revents: 0,
+                        });
+                    }
+                }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+    }
+
+    fn process_line(&mut self, fd: i32, line: String) {
+        let pending = matches!(
+            self.conns.get(&fd).map(|c| &c.state),
+            Some(ConnState::Pending)
+        );
+        if pending {
+            self.handle_handshake(fd, line);
+        }
+        // else: AI command / GUI request 
+    }
+
+    fn handle_handshake(&mut self, fd: i32, line: String) {
+        let (width, height) = self.world.w_h;
+
+        if line == "GRAPHIC" {
+            if let Some(conn) = self.conns.get_mut(&fd) {
+                conn.state = ConnState::Gui;
+                // GUI init feed
+            }
+            return;
+        }
+
+        let player = self.next_player;
+        self.next_player += 1;
+        let free_slots = self.max_clients; // TODO: real per-team remaining slots
+        if let Some(conn) = self.conns.get_mut(&fd) {
+            conn.state = ConnState::Ai { player };
+            conn.send_line(&free_slots.to_string());
+            conn.send_line(&format!("{} {}", width, height));
+        }
+    }
+
+    fn handle_due_events(&mut self) {
+        let now = Instant::now();
+        while let Some(event) = self.sched.pop_due(now) {
+            match event {
+                Event::RespawnResources => {
+                    self.sched
+                        .schedule_units(20, self.f, Event::RespawnResources);
+                }
+                Event::ActionDone { player, command_id } => {
+                    let _ = (player, command_id);
+                }
+                Event::IncantationDone { tile, level } => {
+                    let _ = (tile, level);
+                }
+                Event::Starve { player } => {
+                    let _ = player;
+                }
+            }
+        }
+    }
+
+    fn reap_closed(&mut self) {
+        if self.conns.values().any(|c| c.closed) {
+            let mut fds = std::mem::take(&mut self.fds);
+
+            fds.retain(|pfd| self.conns.get(&pfd.fd).is_none_or(|c| !c.closed));
+            self.fds = fds;
+            self.conns.retain(|_, c| !c.closed);
+        }
+    }
+}
