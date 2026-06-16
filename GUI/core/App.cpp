@@ -50,6 +50,10 @@ void App::processMessages()
         if (_phase == Phase::Connecting) {
             if (*line == "WELCOME") {
                 _net.send("GRAPHIC\n");
+                _net.send("msz\n");
+                _net.send("mct\n");
+                _net.send("tna\n");
+                _net.send("sgt\n");
                 _phase = Phase::Running;
             }
         } else {
