@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
       - name: install raylib
         run: |
-          apt-get install -y --no-install-recommends libgl1-mesa-dev libx11-dev
+          apt-get install -y --no-install-recommends libgl-dev libx11-dev
           curl -L "https://github.com/raysan5/raylib/releases/download/5.0/raylib-5.0_linux_amd64.tar.gz" -o /tmp/raylib.tar.gz
           tar -xzf /tmp/raylib.tar.gz -C /tmp/
           cp /tmp/raylib-5.0_linux_amd64/include/* /usr/local/include/
