@@ -18,20 +18,28 @@ SRC_AI = AI/main.cpp \
 
 GUI_BIN = $(NAME)_gui
 SRC_GUI = GUI/main.cpp \
+          GUI/core/Args.cpp \
+          GUI/core/Network.cpp \
+          GUI/core/App.cpp \
+          GUI/game/GameState.cpp \
+          GUI/protocol/Parser.cpp \
 
-OBJ_AI = $(SRC_AI:.cpp=.o)
+OBJ_AI  = $(SRC_AI:.cpp=.o)
 OBJ_GUI = $(SRC_GUI:.cpp=.o)
 
 WARNINGS = -Wextra -Wall -Werror -std=c++20
 
-AI_INCLUDES = -I./AI
-GUI_INCLUDES = -I./GUI
+RAYLIB_CFLAGS = $(shell pkg-config --cflags raylib 2>/dev/null)
+RAYLIB_LIBS   = $(shell pkg-config --libs   raylib 2>/dev/null || echo "-lraylib -lGL -lm -lpthread -ldl -lrt -lX11")
+
+AI_INCLUDES     = -I./AI
+GUI_INCLUDES    = -I./GUI $(RAYLIB_CFLAGS)
 COMMON_INCLUDES = -I./include
 
 MAKEFLAGS = --colors=auto
 
 %.o: %.cpp
-	g++ -fPIC -c $< -o $@ $(CFLAGS) $(WARNINGS)
+	g++ -fPIC -c $< -o $@ $(CFLAGS) $(WARNINGS) $(GUI_INCLUDES) $(AI_INCLUDES) $(COMMON_INCLUDES)
 
 all:
 	$(MAKE) $(MAKEFLAGS) zappy_server
@@ -49,13 +57,10 @@ zappy_ai: $(OBJ_AI)
 	clang++ $(CFLAGS) $(WARNINGS) $(OBJ_AI) -o $(AI_BIN)
 
 zappy_gui: $(OBJ_GUI)
-	clang++ $(CFLAGS) $(WARNINGS) $(OBJ_GUI) -o $(GUI_BIN)
+	clang++ $(CFLAGS) $(WARNINGS) $(OBJ_GUI) -o $(GUI_BIN) $(RAYLIB_LIBS)
 
-
-
-debug:
-	CFLAGS += -g3
-	all
+debug: CFLAGS += -g3
+debug: all
 
 clean:
 	rm -f $(OBJ_AI) $(OBJ_GUI)
@@ -64,6 +69,6 @@ clean:
 fclean: clean
 	rm -f $(SERV_BIN) $(AI_BIN) $(GUI_BIN)
 
-re:	fclean all
+re: fclean all
 
 .PHONY: all fast zappy_server zappy_ai zappy_gui debug clean fclean re
