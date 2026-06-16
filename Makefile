@@ -30,7 +30,7 @@ OBJ_GUI = $(SRC_GUI:.cpp=.o)
 WARNINGS = -Wextra -Wall -Werror -std=c++20
 
 RAYLIB_CFLAGS = $(shell pkg-config --cflags raylib 2>/dev/null)
-RAYLIB_LIBS   = $(shell pkg-config --libs   raylib 2>/dev/null || echo "-lraylib -lm")
+RAYLIB_LIBS   = $(shell pkg-config --libs   raylib 2>/dev/null || echo "-lraylib -lGL -lm -lpthread -ldl -lrt -lX11")
 
 AI_INCLUDES     = -I./AI
 GUI_INCLUDES    = -I./GUI $(RAYLIB_CFLAGS)
