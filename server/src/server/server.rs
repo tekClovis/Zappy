@@ -48,9 +48,13 @@ impl Server {
             }
         };
 
-        let map = World::new(self.config.x, self.config.y);
-        let mut reactor =
-            Reactor::new(listener, self.config.frequency, self.config.clients, map)?;
+        let map = World::new(
+            self.config.x,
+            self.config.y,
+            &self.config.names,
+            self.config.clients,
+        );
+        let mut reactor = Reactor::new(listener, self.config.frequency, map)?;
         reactor.run()
     }
 }

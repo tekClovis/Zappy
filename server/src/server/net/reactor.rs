@@ -11,6 +11,7 @@ use std::net::TcpListener;
 use std::os::fd::AsRawFd;
 use std::time::Instant;
 
+use crate::server::game::team::JoinError;
 use crate::server::game::world::World;
 use crate::server::net::connection::{ConnState, Connection};
 use crate::server::scheduler::{Event, Scheduler};
@@ -22,12 +23,10 @@ pub struct Reactor {
     sched: Scheduler,
     world: World,
     f: u32,
-    max_clients: usize,
-    next_player: u32,
 }
 
 impl Reactor {
-    pub fn new(listener: TcpListener, f: u32, max_clients: usize, world: World) -> Result<Self> {
+    pub fn new(listener: TcpListener, f: u32, world: World) -> Result<Self> {
         listener.set_nonblocking(true)?;
         let mut sched = Scheduler::new();
         sched.schedule_units(20, f, Event::RespawnResources);
@@ -42,8 +41,6 @@ impl Reactor {
             sched,
             world,
             f,
-            max_clients,
-            next_player: 1,
         })
     }
 
@@ -163,13 +160,28 @@ impl Reactor {
             return;
         }
 
-        let player = self.next_player;
-        self.next_player += 1;
-        let free_slots = self.max_clients; // TODO: real per-team remaining slots
-        if let Some(conn) = self.conns.get_mut(&fd) {
-            conn.state = ConnState::Ai { player };
-            conn.send_line(&free_slots.to_string());
-            conn.send_line(&format!("{} {}", width, height));
+        match self.world.add_player(&line) {
+            Ok((player, remaining)) => {
+                if let Some(conn) = self.conns.get_mut(&fd) {
+                    conn.state = ConnState::Ai { player };
+                    conn.send_line(&remaining.to_string());
+                    conn.send_line(&format!("{} {}", width, height));
+                }
+                // pnw #player X Y O L N to GUI once the GUI sink exists
+            }
+            Err(err) => {
+                // Reply then drop: reap_closed removes the conn this same loop
+                // iteration, so flush the one-line answer before closing it.
+                if let Some(conn) = self.conns.get_mut(&fd) {
+                    let reply = match err {
+                        JoinError::UnknownTeam => "ko",
+                        JoinError::TeamFull => "0",
+                    };
+                    conn.send_line(reply);
+                    conn.flush();
+                    conn.closed = true;
+                }
+            }
         }
     }
 

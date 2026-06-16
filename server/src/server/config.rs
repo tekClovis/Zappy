@@ -5,6 +5,12 @@
 // Config
 //
 
+/// Hard caps so a single CLI line can't ask the server to allocate absurd
+/// amounts of state. Generous, but bounded.
+const MIN_DIMENSION: usize = 5;
+const MAX_TEAMS: usize = 100;
+const MAX_CLIENTS_PER_TEAM: usize = 1000;
+
 #[derive(Debug)]
 pub struct Config {
     // Define Port Number
@@ -39,11 +45,11 @@ impl Config {
         println!("    zappy_server [OPTIONS]\n");
         println!("OPTIONS:");
         println!("    -p <port>       Port number to listen on [default: 4242]");
-        println!("    -c <clients>    Number of authorized clients per team [default: 10]");
-        println!("    -n <names>...   Names of the teams (one or more) [default: GRAPHICAL]");
+        println!("    -c <clients>    Authorized clients per team, 1-{MAX_CLIENTS_PER_TEAM} [default: 10]");
+        println!("    -n <names>...   Team names, up to {MAX_TEAMS} (one or more) [default: GRAPHICAL]");
         println!("    -f <frequency>  Server frequency (time unit) [default: 100]");
-        println!("    -x <x>          World width in tiles [default: 10]");
-        println!("    -y <y>          World height in tiles [default: 10]");
+        println!("    -x <x>          World width in tiles, min {MIN_DIMENSION} [default: 10]");
+        println!("    -y <y>          World height in tiles, min {MIN_DIMENSION} [default: 10]");
         println!("    -h, --help      Print help information");
     }
 
@@ -115,6 +121,24 @@ impl Config {
                 other => return Err(format!("unexpected argument: {other}")),
             }
             i += 1;
+        }
+        if config.x < MIN_DIMENSION || config.y < MIN_DIMENSION {
+            return Err(format!(
+                "world dimensions must be at least {MIN_DIMENSION}x{MIN_DIMENSION} (got {}x{})",
+                config.x, config.y
+            ));
+        }
+        if config.clients < 1 || config.clients > MAX_CLIENTS_PER_TEAM {
+            return Err(format!(
+                "clients per team must be between 1 and {MAX_CLIENTS_PER_TEAM} (got {})",
+                config.clients
+            ));
+        }
+        if config.names.len() > MAX_TEAMS {
+            return Err(format!(
+                "number of teams must be at most {MAX_TEAMS} (got {})",
+                config.names.len()
+            ));
         }
         Ok(config)
     }
