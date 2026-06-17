@@ -1,5 +1,6 @@
 *.o
 *.md
+*.pdf
 *key*
 .vscode
 server/target

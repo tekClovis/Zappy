@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::command::{Command, EnqueueError, MAX_QUEUED};
 use super::player::{Orientation, Player};
 use super::team::{JoinError, Team};
 
@@ -79,5 +80,51 @@ impl World {
         team.slots -= 1;
         team.players.push(id);
         Ok((id, team.remaining()))
+    }
+
+    /// Parse `line` and push it onto `player`'s bounded queue. Reply handling
+    /// (the `ko` on `BadCommand`, the silent drop on `QueueFull`) is the reactor's.
+    pub fn enqueue_command(&mut self, player: u32, line: &str) -> Result<(), EnqueueError> {
+        let cmd = Command::parse(line).ok_or(EnqueueError::BadCommand)?;
+        let p = self
+            .players
+            .get_mut(&player)
+            .ok_or(EnqueueError::BadCommand)?;
+        if p.queue.len() >= MAX_QUEUED {
+            return Err(EnqueueError::QueueFull);
+        }
+        p.queue.push_back(cmd);
+        Ok(())
+    }
+
+    /// If `player` is idle with a queued command, mark it in-flight and return
+    /// `(command_id, cost)` for the reactor to schedule. `None` = nothing to
+    /// start or the player is already busy.
+    pub fn start_next(&mut self, player: u32) -> Option<(u64, u32)> {
+        let p = self.players.get_mut(&player)?;
+        if p.busy {
+            return None;
+        }
+        let cost = p.queue.front()?.cost();
+        p.cmd_seq += 1;
+        p.current_cmd = p.cmd_seq;
+        p.busy = true;
+        Some((p.current_cmd, cost))
+    }
+
+    /// An `ActionDone` fired: if it matches the in-flight command, pop and
+    /// execute it (placeholder), returning the AI reply. Clears `busy` so the
+    /// next queued command can start.
+    pub fn finish_command(&mut self, player: u32, command_id: u64) -> Option<String> {
+        let cmd = {
+            let p = self.players.get_mut(&player)?;
+            if !p.busy || p.current_cmd != command_id {
+                return None;
+            }
+            p.busy = false;
+            p.current_cmd = 0;
+            p.queue.pop_front()?
+        };
+        Some(cmd.execute(self, player))
     }
 }

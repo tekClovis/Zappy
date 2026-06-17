@@ -5,8 +5,10 @@
 // player (drone: pos, orientation, level, inventory)
 //
 
-/// Facing direction. The discriminants are the codes the GUI protocol uses
-/// (`O` in `pnw #n X Y O L N`).
+use std::collections::VecDeque;
+
+use super::command::Command;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Orientation {
     North = 1,
@@ -15,8 +17,7 @@ pub enum Orientation {
     West = 4,
 }
 
-/// One AI-controlled drone. Bound to a `Team` (by index into `World.teams`).
-#[allow(dead_code)] // fields are read once command execution + GUI events land
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Player {
     pub id: u32,
@@ -26,10 +27,13 @@ pub struct Player {
     pub orientation: Orientation,
     pub level: u8,
     pub food: u32,
+    pub queue: VecDeque<Command>, // pending actions, <= MAX_QUEUED
+    pub busy: bool,               // a command is in flight (player frozen)
+    pub current_cmd: u64,         // id of the in-flight command (0 = none)
+    pub cmd_seq: u64,             // monotonic per-player command counter
 }
 
 impl Player {
-    /// Spawn a fresh drone: level 1 with the Zappy starting ration of 10 food.
     pub fn new(id: u32, team: usize, x: usize, y: usize, orientation: Orientation) -> Self {
         Player {
             id,
@@ -39,6 +43,10 @@ impl Player {
             orientation,
             level: 1,
             food: 10,
+            queue: VecDeque::new(),
+            busy: false,
+            current_cmd: 0,
+            cmd_seq: 0,
         }
     }
 }

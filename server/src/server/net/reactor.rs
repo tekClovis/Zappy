@@ -11,10 +11,17 @@ use std::net::TcpListener;
 use std::os::fd::AsRawFd;
 use std::time::Instant;
 
+use crate::server::game::command::EnqueueError;
 use crate::server::game::team::JoinError;
 use crate::server::game::world::World;
 use crate::server::net::connection::{ConnState, Connection};
 use crate::server::scheduler::{Event, Scheduler};
+
+enum Route {
+    Handshake,
+    Ai(u32),
+    Gui,
+}
 
 pub struct Reactor {
     listener: TcpListener,
@@ -139,14 +146,44 @@ impl Reactor {
     }
 
     fn process_line(&mut self, fd: i32, line: String) {
-        let pending = matches!(
-            self.conns.get(&fd).map(|c| &c.state),
-            Some(ConnState::Pending)
-        );
-        if pending {
-            self.handle_handshake(fd, line);
+        let route = match self.conns.get(&fd).map(|c| &c.state) {
+            Some(ConnState::Pending) => Route::Handshake,
+            Some(ConnState::Ai { player }) => Route::Ai(*player),
+            Some(ConnState::Gui) => Route::Gui,
+            None => return,
+        };
+        match route {
+            Route::Handshake => self.handle_handshake(fd, line),
+            Route::Ai(player) => self.handle_command(fd, player, line),
+            Route::Gui => {} // GUI requests (mct, ...) land later
         }
-        // else: AI command / GUI request 
+    }
+
+    fn handle_command(&mut self, fd: i32, player: u32, line: String) {
+        match self.world.enqueue_command(player, &line) {
+            Ok(()) => self.maybe_start(player),
+            Err(EnqueueError::BadCommand) => {
+                if let Some(conn) = self.conns.get_mut(&fd) {
+                    conn.send_line("ko");
+                }
+            }
+            Err(EnqueueError::QueueFull) => {} // dropped silently
+        }
+    }
+
+    /// Start the player's next queued command if it is idle, scheduling its
+    /// `ActionDone` at `cost / f` seconds.
+    fn maybe_start(&mut self, player: u32) {
+        if let Some((command_id, cost)) = self.world.start_next(player) {
+            self.sched
+                .schedule_units(cost, self.f, Event::ActionDone { player, command_id });
+        }
+    }
+
+    fn conn_for_player(&mut self, player: u32) -> Option<&mut Connection> {
+        self.conns
+            .values_mut()
+            .find(|c| matches!(c.state, ConnState::Ai { player: p } if p == player))
     }
 
     fn handle_handshake(&mut self, fd: i32, line: String) {
@@ -167,11 +204,8 @@ impl Reactor {
                     conn.send_line(&remaining.to_string());
                     conn.send_line(&format!("{} {}", width, height));
                 }
-                // pnw #player X Y O L N to GUI once the GUI sink exists
             }
             Err(err) => {
-                // Reply then drop: reap_closed removes the conn this same loop
-                // iteration, so flush the one-line answer before closing it.
                 if let Some(conn) = self.conns.get_mut(&fd) {
                     let reply = match err {
                         JoinError::UnknownTeam => "ko",
@@ -194,7 +228,12 @@ impl Reactor {
                         .schedule_units(20, self.f, Event::RespawnResources);
                 }
                 Event::ActionDone { player, command_id } => {
-                    let _ = (player, command_id);
+                    if let Some(reply) = self.world.finish_command(player, command_id)
+                        && let Some(conn) = self.conn_for_player(player)
+                    {
+                        conn.send_line(&reply);
+                    }
+                    self.maybe_start(player);
                 }
                 Event::IncantationDone { tile, level } => {
                     let _ = (tile, level);
