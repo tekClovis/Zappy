@@ -76,7 +76,6 @@ impl Reactor {
         }
     }
 
-
     fn refresh_events(&mut self) {
         let listener_fd = self.listener.as_raw_fd();
         for i in 0..self.fds.len() {
@@ -246,12 +245,25 @@ impl Reactor {
     }
 
     fn reap_closed(&mut self) {
-        if self.conns.values().any(|c| c.closed) {
-            let mut fds = std::mem::take(&mut self.fds);
-
-            fds.retain(|pfd| self.conns.get(&pfd.fd).is_none_or(|c| !c.closed));
-            self.fds = fds;
-            self.conns.retain(|_, c| !c.closed);
+        if !self.conns.values().any(|c| c.closed) {
+            return;
         }
+
+        let gone: Vec<u32> = self
+            .conns
+            .values()
+            .filter_map(|c| match c.state {
+                ConnState::Ai { player } if c.closed => Some(player),
+                _ => None,
+            })
+            .collect();
+        for player in gone {
+            self.world.remove_player(player);
+        }
+
+        let mut fds = std::mem::take(&mut self.fds);
+        fds.retain(|pfd| self.conns.get(&pfd.fd).is_none_or(|c| !c.closed));
+        self.fds = fds;
+        self.conns.retain(|_, c| !c.closed);
     }
 }

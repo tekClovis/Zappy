@@ -68,7 +68,6 @@ impl Command {
         }
     }
 
-    /// Cost in time units; the real delay is `cost / f` seconds (ARCHITECTURE.md §5).
     pub fn cost(&self) -> u32 {
         match self {
             Command::ConnectNbr => 0,
@@ -86,8 +85,6 @@ impl Command {
         }
     }
 
-    /// Placeholder effect: the real world mutation + GUI events land later. For
-    /// now, print what would run and return the AI's canned wire reply.
     pub fn execute(&self, world: &mut World, player: u32) -> String {
         println!("[cmd] #{player} {self:?}");
         let _ = world;
