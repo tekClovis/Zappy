@@ -166,12 +166,10 @@ impl Reactor {
                     conn.send_line("ko");
                 }
             }
-            Err(EnqueueError::QueueFull) => {} // dropped silently
+            Err(EnqueueError::QueueFull) => {}
         }
     }
 
-    /// Start the player's next queued command if it is idle, scheduling its
-    /// `ActionDone` at `cost / f` seconds.
     fn maybe_start(&mut self, player: u32) {
         if let Some((command_id, cost)) = self.world.start_next(player) {
             self.sched
@@ -227,10 +225,10 @@ impl Reactor {
                         .schedule_units(20, self.f, Event::RespawnResources);
                 }
                 Event::ActionDone { player, command_id } => {
-                    if let Some(reply) = self.world.finish_command(player, command_id)
-                        && let Some(conn) = self.conn_for_player(player)
-                    {
-                        conn.send_line(&reply);
+                    if let Some(reply) = self.world.finish_command(player, command_id) {
+                        if let Some(conn) = self.conn_for_player(player) {
+                            conn.send_line(&reply);
+                        }
                     }
                     self.maybe_start(player);
                 }

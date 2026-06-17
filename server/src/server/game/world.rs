@@ -132,10 +132,10 @@ impl World {
     /// Removes it from the world and its team roster. The team **slot is not
     /// returned** — a slot only comes back when a `Fork` lays a new egg.
     pub fn remove_player(&mut self, player: u32) {
-        if let Some(p) = self.players.remove(&player)
-            && let Some(team) = self.teams.get_mut(p.team)
-        {
-            team.players.retain(|&id| id != player);
+        if let Some(p) = self.players.remove(&player) {
+            if let Some(team) = self.teams.get_mut(p.team) {
+                team.players.retain(|&id| id != player);
+            }
         }
     }
 }
