@@ -13,8 +13,8 @@ SERV_MANIFEST = $(SERV_DIR)/Cargo.toml
 SERV_TARGET_DIR = $(SERV_DIR)/target
 SERV_TARGET = $(SERV_TARGET_DIR)/debug/$(SERV_BIN)
 
-AI_BIN = $(NAME)_ai
-SRC_AI = AI/main.cpp \
+AI_BIN		= $(NAME)_ai
+AI_LAUNCHER = AI/launcher.py
 
 GUI_BIN = $(NAME)_gui
 SRC_GUI = GUI/main.cpp \
@@ -24,7 +24,6 @@ SRC_GUI = GUI/main.cpp \
           GUI/game/GameState.cpp \
           GUI/protocol/Parser.cpp \
 
-OBJ_AI  = $(SRC_AI:.cpp=.o)
 OBJ_GUI = $(SRC_GUI:.cpp=.o)
 
 WARNINGS = -Wextra -Wall -Werror -std=c++20
@@ -53,8 +52,9 @@ zappy_server:
 	cargo build --manifest-path $(SERV_MANIFEST)
 	cp -f $(SERV_TARGET) $(SERV_BIN)
 
-zappy_ai: $(OBJ_AI)
-	clang++ $(CFLAGS) $(WARNINGS) $(OBJ_AI) -o $(AI_BIN)
+zappy_ai: $(AI_LAUNCHER)
+	cp $(AI_LAUNCHER) $(AI_BIN)
+	chmod +x $(AI_BIN)
 
 zappy_gui: $(OBJ_GUI)
 	clang++ $(CFLAGS) $(WARNINGS) $(OBJ_GUI) -o $(GUI_BIN) $(RAYLIB_LIBS)
