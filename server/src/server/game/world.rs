@@ -127,4 +127,44 @@ impl World {
         };
         Some(cmd.execute(self, player))
     }
+
+    /// Drop a drone when its AI disconnects or starves (ref GUI protocol: `pdi`).
+    /// Removes it from the world and its team roster. The team **slot is not
+    /// returned** — a slot only comes back when a `Fork` lays a new egg.
+    pub fn remove_player(&mut self, player: u32) {
+        if let Some(p) = self.players.remove(&player)
+            && let Some(team) = self.teams.get_mut(p.team)
+        {
+            team.players.retain(|&id| id != player);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn world() -> World {
+        World::new(10, 10, &["team1".to_string()], 2)
+    }
+
+    #[test]
+    fn remove_player_drops_drone_but_keeps_slot_consumed() {
+        let mut w = world();
+        let (id, remaining) = w.add_player("team1").unwrap();
+        assert_eq!(remaining, 1); // 2 slots, 1 now consumed
+
+        w.remove_player(id);
+
+        assert!(!w.players.contains_key(&id));
+        assert!(w.teams[0].players.is_empty());
+        // slot stays consumed: a disconnect is a death, not a freed egg.
+        assert_eq!(w.teams[0].remaining(), 1);
+    }
+
+    #[test]
+    fn remove_unknown_player_is_a_noop() {
+        let mut w = world();
+        w.remove_player(999); // must not panic
+    }
 }

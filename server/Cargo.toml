@@ -8,7 +8,6 @@ include = [
     "src/server/mod.rs",
     "src/server/server.rs",
     "src/server/config.rs",
-    "src/server/map.rs",
     "src/server/scheduler.rs",
     "src/server/net/mod.rs",
     "src/server/net/connection.rs",
