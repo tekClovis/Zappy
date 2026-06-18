@@ -129,6 +129,13 @@ void Parser::parse(const std::string& line)
     } else if (tag == "seg") {
         _s.over = true;
         if (line.size() > 4) _s.winner = line.substr(4);
+
+    } else if (tag == "smg") {
+        if (line.size() > 4) {
+            _s.serverMessages.push_back(line.substr(4));
+            if (_s.serverMessages.size() > 50)
+                _s.serverMessages.erase(_s.serverMessages.begin());
+        }
     }
-    // pex, pbc, pfk, smg, suc, sbp handled silently
+    // pex, pbc, pfk, suc, sbp handled silently
 }
