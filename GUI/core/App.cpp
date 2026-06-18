@@ -123,6 +123,16 @@ void App::update(float dt)
         r.timer -= dt;
     std::erase_if(_state.incantResults,
                   [](const IncantationResult& r) { return r.timer <= 0.0f; });
+
+    // fade out broadcast waves and ejection bursts
+    for (auto& b : _state.broadcasts)
+        b.timer -= dt;
+    std::erase_if(_state.broadcasts,
+                  [](const Broadcast& b) { return b.timer <= 0.0f; });
+    for (auto& e : _state.ejects)
+        e.timer -= dt;
+    std::erase_if(_state.ejects,
+                  [](const EjectFx& e) { return e.timer <= 0.0f; });
 }
 
 float App::uiScale() const
@@ -282,6 +292,40 @@ void App::renderGame() const
         }
     }
 
+    // broadcasts: expanding blue sound wave + message bubble from the emitter
+    for (const auto& b : _state.broadcasts) {
+        auto it = _state.players.find(b.playerId);
+        if (it == _state.players.end())
+            continue;
+        Vector2 c = {
+            ox + (it->second.renderX + 0.5f) * tileSize,
+            oy + (it->second.renderY + 0.5f) * tileSize
+        };
+        float a = b.timer / 3.0f;       // 1 -> 0
+        float grow = 1.0f - a;          // 0 -> 1
+        DrawCircleLines((int)c.x, (int)c.y, tileSize * (0.5f + 2.5f * grow),
+                        { 0, 170, 255, (unsigned char)(220 * a) });
+        if (!b.text.empty()) {
+            int fs = (int)(14 * uiScale());
+            int w = MeasureText(b.text.c_str(), fs);
+            DrawText(b.text.c_str(), (int)(c.x - (float)w / 2.0f),
+                     (int)(c.y - tileSize * 0.6f - (float)fs), fs, SKYBLUE);
+        }
+    }
+
+    // ejections: quick orange burst on the player's tile
+    for (const auto& e : _state.ejects) {
+        auto it = _state.players.find(e.playerId);
+        if (it == _state.players.end())
+            continue;
+        Vector2 c = {
+            ox + (it->second.renderX + 0.5f) * tileSize,
+            oy + (it->second.renderY + 0.5f) * tileSize
+        };
+        float a = e.timer; // 1 -> 0 (lifetime is 1s)
+        DrawCircleV(c, tileSize * (0.3f + 0.6f * (1.0f - a)),
+                    { 255, 140, 0, (unsigned char)(180 * a) });
+    }
 }
 
 void App::renderPanel() const

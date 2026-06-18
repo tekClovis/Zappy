@@ -141,6 +141,19 @@ void Parser::parse(const std::string& line)
             if (_s.serverMessages.size() > 50)
                 _s.serverMessages.erase(_s.serverMessages.begin());
         }
+
+    } else if (tag == "pbc") {
+        int n = 0, off = 0;
+        sscanf(line.c_str(), "pbc #%d%n", &n, &off);
+        std::string msg;
+        if (off > 0 && (size_t)(off + 1) < line.size())
+            msg = line.substr(off + 1);
+        _s.broadcasts.push_back({ n, msg, 3.0f });
+
+    } else if (tag == "pex") {
+        int n = 0;
+        sscanf(line.c_str(), "pex #%d", &n);
+        _s.ejects.push_back({ n, 1.0f });
     }
-    // pex, pbc, pfk, suc, sbp handled silently
+    // pfk, suc, sbp handled silently
 }
