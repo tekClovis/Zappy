@@ -46,14 +46,17 @@ static void drawTileResources(const Tile& t, float tx, float ty, float size)
     }
 }
 
-static void drawLegend()
+static void drawLegend(float s)
 {
-    int x = 14;
-    int y = 14;
-    DrawRectangle(x - 6, y - 6, 120, 7 * 16 + 12, { 0, 0, 0, 150 });
+    int x = (int)(14 * s);
+    int y = (int)(14 * s);
+    int lh = (int)(16 * s);
+    int fs = (int)(12 * s);
+    DrawRectangle(x - (int)(6 * s), y - (int)(6 * s),
+                  (int)(120 * s), 7 * lh + (int)(12 * s), { 0, 0, 0, 150 });
     for (int i = 0; i < 7; i++) {
-        DrawCircle(x + 5, y + 8 + i * 16, 5.0f, RES_COLORS[i]);
-        DrawText(RES_NAMES[i], x + 16, y + 2 + i * 16, 12, RAYWHITE);
+        DrawCircle(x + (int)(5 * s), y + (int)(8 * s) + i * lh, 5.0f * s, RES_COLORS[i]);
+        DrawText(RES_NAMES[i], x + (int)(16 * s), y + (int)(2 * s) + i * lh, fs, RAYWHITE);
     }
 }
 
@@ -115,10 +118,21 @@ void App::update(float dt)
     }
 }
 
+float App::uiScale() const
+{
+    // HUD scales with window height, baseline design is 720p
+    return (float)GetScreenHeight() / 720.0f;
+}
+
+float App::panelWidth() const
+{
+    return PANEL_W * uiScale();
+}
+
 App::Layout App::computeLayout() const
 {
     // map area is the screen minus the right-side info panel
-    float availW = (float)GetScreenWidth() - PANEL_W - 2.0f * MARGIN;
+    float availW = (float)GetScreenWidth() - panelWidth() - 2.0f * MARGIN;
     float availH = (float)GetScreenHeight() - 2.0f * MARGIN;
     float tileSize = std::min(availW / (float)_state.width,
                               availH / (float)_state.height);
@@ -199,7 +213,7 @@ void App::renderGame() const
             drawTileResources(_state.map[y][x], rec.x, rec.y, tileSize);
         }
     }
-    drawLegend();
+    drawLegend(uiScale());
 
     // eggs
     for (auto& [id, egg] : _state.eggs) {
@@ -241,74 +255,83 @@ void App::renderGame() const
 
 void App::renderPanel() const
 {
-    float px = (float)GetScreenWidth() - PANEL_W;
-    DrawRectangle((int)px, 0, (int)PANEL_W, GetScreenHeight(), { 30, 30, 38, 255 });
+    float s = uiScale();
+    float pw = panelWidth();
+    float px = (float)GetScreenWidth() - pw;
+    DrawRectangle((int)px, 0, (int)pw + 1, GetScreenHeight(), { 30, 30, 38, 255 });
     DrawLine((int)px, 0, (int)px, GetScreenHeight(), { 60, 60, 70, 255 });
 
-    int tx = (int)px + 15;
-    int y = 15;
+    int tx = (int)px + (int)(15 * s);
+    int right = (int)px + (int)pw - (int)(15 * s);
+    int hf = (int)(16 * s);     // standard HUD font
+    float hl = 22 * s;          // standard line height
+    float y = 15 * s;
 
-    DrawText("ZAPPY", tx, y, 26, WHITE);
-    y += 40;
+    DrawText("ZAPPY", tx, (int)y, (int)(26 * s), WHITE);
+    y += 40 * s;
 
     // global HUD
     DrawText(TextFormat("Map: %d x %d", _state.width, _state.height),
-             tx, y, 16, LIGHTGRAY); y += 22;
+             tx, (int)y, hf, LIGHTGRAY); y += hl;
     DrawText(TextFormat("Players: %d", (int)_state.players.size()),
-             tx, y, 16, LIGHTGRAY); y += 22;
+             tx, (int)y, hf, LIGHTGRAY); y += hl;
     DrawText(TextFormat("Eggs: %d", (int)_state.eggs.size()),
-             tx, y, 16, LIGHTGRAY); y += 22;
+             tx, (int)y, hf, LIGHTGRAY); y += hl;
     DrawText(TextFormat("Time unit: %d", _state.timeUnit),
-             tx, y, 16, LIGHTGRAY); y += 22;
+             tx, (int)y, hf, LIGHTGRAY); y += hl;
     DrawText(TextFormat("Teams: %d", (int)_state.teams.size()),
-             tx, y, 16, LIGHTGRAY); y += 30;
+             tx, (int)y, hf, LIGHTGRAY); y += 30 * s;
 
-    DrawLine(tx, y, (int)px + (int)PANEL_W - 15, y, { 60, 60, 70, 255 });
-    y += 12;
+    DrawLine(tx, (int)y, right, (int)y, { 60, 60, 70, 255 });
+    y += 12 * s;
 
     // selected player detail
     auto it = _state.players.find(_selected);
     if (it == _state.players.end()) {
-        DrawText("Click a player", tx, y, 16, GRAY);
+        DrawText("Click a player", tx, (int)y, hf, GRAY);
     } else {
         const Player& p = it->second;
-        DrawText(TextFormat("Player #%d", p.id), tx, y, 20, WHITE); y += 28;
-        DrawText(TextFormat("Team: %s", p.team.c_str()), tx, y, 16, LIGHTGRAY); y += 22;
-        DrawText(TextFormat("Level: %d", p.level), tx, y, 16, LIGHTGRAY); y += 22;
-        DrawText(TextFormat("Pos: (%d, %d)", p.x, p.y), tx, y, 16, LIGHTGRAY); y += 22;
+        DrawText(TextFormat("Player #%d", p.id), tx, (int)y, (int)(20 * s), WHITE);
+        y += 28 * s;
+        DrawText(TextFormat("Team: %s", p.team.c_str()), tx, (int)y, hf, LIGHTGRAY); y += hl;
+        DrawText(TextFormat("Level: %d", p.level), tx, (int)y, hf, LIGHTGRAY); y += hl;
+        DrawText(TextFormat("Pos: (%d, %d)", p.x, p.y), tx, (int)y, hf, LIGHTGRAY); y += hl;
         const char *dir[] = { "?", "North", "East", "South", "West" };
         int o = (p.orientation >= 1 && p.orientation <= 4) ? p.orientation : 0;
-        DrawText(TextFormat("Facing: %s", dir[o]), tx, y, 16, LIGHTGRAY); y += 28;
+        DrawText(TextFormat("Facing: %s", dir[o]), tx, (int)y, hf, LIGHTGRAY); y += 28 * s;
 
-        DrawText("Inventory:", tx, y, 16, WHITE); y += 22;
+        DrawText("Inventory:", tx, (int)y, hf, WHITE); y += hl;
         for (int i = 0; i < 7; i++) {
             DrawText(TextFormat("  %-10s %d", RES_NAMES[i], p.inventory[i]),
-                     tx, y, 15, LIGHTGRAY);
-            y += 19;
+                     tx, (int)y, (int)(15 * s), LIGHTGRAY);
+            y += 19 * s;
         }
     }
 
     // server messages at the bottom
     if (!_state.serverMessages.empty()) {
-        int logY = GetScreenHeight() - 15 - 19 * 6;
-        DrawLine(tx, logY - 10, (int)px + (int)PANEL_W - 15, logY - 10,
+        float lineH = 19 * s;
+        int logY = GetScreenHeight() - (int)(15 * s) - (int)(lineH * 6);
+        DrawLine(tx, logY - (int)(10 * s), right, logY - (int)(10 * s),
                  { 60, 60, 70, 255 });
-        DrawText("Server log:", tx, logY - 28, 16, WHITE);
+        DrawText("Server log:", tx, logY - (int)(28 * s), hf, WHITE);
         int n = (int)_state.serverMessages.size();
         int start = n > 6 ? n - 6 : 0;
+        float ly = (float)logY;
         for (int i = start; i < n; i++) {
-            DrawText(_state.serverMessages[i].c_str(), tx, logY, 13, GRAY);
-            logY += 19;
+            DrawText(_state.serverMessages[i].c_str(), tx, (int)ly, (int)(13 * s), GRAY);
+            ly += lineH;
         }
     }
 
     // game over banner
     if (_state.over) {
-        DrawRectangle(0, GetScreenHeight() / 2 - 40, GetScreenWidth(), 80,
-                      { 0, 0, 0, 200 });
+        DrawRectangle(0, GetScreenHeight() / 2 - (int)(40 * s),
+                      GetScreenWidth(), (int)(80 * s), { 0, 0, 0, 200 });
         std::string msg = "GAME OVER - Winner: " + _state.winner;
-        int w = MeasureText(msg.c_str(), 30);
+        int fs = (int)(30 * s);
+        int w = MeasureText(msg.c_str(), fs);
         DrawText(msg.c_str(), (GetScreenWidth() - w) / 2,
-                 GetScreenHeight() / 2 - 15, 30, GOLD);
+                 GetScreenHeight() / 2 - (int)(15 * s), fs, GOLD);
     }
 }
