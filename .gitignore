@@ -1,6 +1,9 @@
 *.o
+*.md
+*.pdf
 *key*
 .vscode
+zappy_ref-v3.0.1
 server/target
 zappy_server
 zappy_ai
