@@ -20,13 +20,23 @@ public:
     void run();
 
 private:
+    struct Layout {
+        float tileSize;
+        float ox;
+        float oy;
+    };
+
     void processMessages();
     void update(float dt);
+    void handleInput();
+    Layout computeLayout() const;
     void renderLoading() const;
     void renderGame() const;
+    void renderPanel() const;
 
     Network _net;
     GameState _state;
     Parser _parser;
     Phase _phase = Phase::Connecting;
+    int _selected = -1;
 };
