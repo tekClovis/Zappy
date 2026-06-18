@@ -1,7 +1,19 @@
 *.o
+*.md
+*.pdf
 *key*
 .vscode
+zappy_ref-v3.0.1
 server/target
 zappy_server
 zappy_ai
 zappy_gui
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+AI/.venv/
+AI/**/__pycache__/
+AI/**/*.pyc
+*.pt

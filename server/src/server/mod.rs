@@ -1,6 +1,8 @@
 pub mod server;
 mod config;
-mod map;
-mod client;
+mod net;
+mod scheduler;
+mod game;
 
+pub use self::config::Config;
 pub use self::server::Server;

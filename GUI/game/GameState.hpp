@@ -24,6 +24,10 @@ struct Player {
     std::string team;
     std::array<int, 7> inventory{};
     bool incanting{};
+    // render-only: interpolated position for smooth movement between tiles
+    float renderX{};
+    float renderY{};
+    bool spawned{};
 };
 
 struct Egg {
@@ -38,6 +42,7 @@ struct GameState {
     std::map<int, Player> players;
     std::map<int, Egg> eggs;
     std::vector<std::string> teams;
+    std::vector<std::string> serverMessages;
     int timeUnit{ 100 };
     bool over{};
     std::string winner;
