@@ -15,6 +15,13 @@ static const Color TEAM_COLORS[] = {
     RED, BLUE, YELLOW, PURPLE, ORANGE, PINK, SKYBLUE, LIME
 };
 
+static const char *RES_NAMES[] = {
+    "food", "linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"
+};
+
+static const float PANEL_W = 300.0f;
+static const float MARGIN = 10.0f;
+
 App::App(const Args& args) : _parser(_state)
 {
     _net.connect(args.host, args.port);
@@ -33,13 +40,16 @@ void App::run()
         _net.update();
         processMessages();
         update(GetFrameTime());
+        handleInput();
 
         BeginDrawing();
         ClearBackground({ 20, 20, 20, 255 });
-        if (_state.width == 0)
+        if (_state.width == 0) {
             renderLoading();
-        else
+        } else {
             renderGame();
+            renderPanel();
+        }
         EndDrawing();
     }
 }
@@ -65,6 +75,43 @@ void App::update(float dt)
             p.renderY = (float)p.y;
         p.renderX += ((float)p.x - p.renderX) * t;
         p.renderY += ((float)p.y - p.renderY) * t;
+    }
+}
+
+App::Layout App::computeLayout() const
+{
+    // map area is the screen minus the right-side info panel
+    float availW = (float)GetScreenWidth() - PANEL_W - 2.0f * MARGIN;
+    float availH = (float)GetScreenHeight() - 2.0f * MARGIN;
+    float tileSize = std::min(availW / (float)_state.width,
+                              availH / (float)_state.height);
+    return {
+        tileSize,
+        MARGIN + (availW - tileSize * (float)_state.width) / 2.0f,
+        MARGIN + (availH - tileSize * (float)_state.height) / 2.0f
+    };
+}
+
+void App::handleInput()
+{
+    if (_state.width == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        return;
+
+    Layout l = computeLayout();
+    Vector2 m = GetMousePosition();
+    int tx = (int)((m.x - l.ox) / l.tileSize);
+    int ty = (int)((m.y - l.oy) / l.tileSize);
+
+    _selected = -1;
+    if (tx < 0 || tx >= _state.width || ty < 0 || ty >= _state.height)
+        return;
+    for (auto& [id, p] : _state.players) {
+        if (p.x == tx && p.y == ty) {
+            _selected = id;
+            // ask the server for a fresh inventory of the selected player
+            _net.send("pin #" + std::to_string(id) + "\n");
+            break;
+        }
     }
 }
 
@@ -96,12 +143,10 @@ void App::renderLoading() const
 
 void App::renderGame() const
 {
-    const float margin = 10.0f;
-    float availW = (float)GetScreenWidth() - 2.0f * margin;
-    float availH = (float)GetScreenHeight() - 2.0f * margin - 30.0f;
-    float tileSize = std::min(availW / (float)_state.width, availH / (float)_state.height);
-    float ox = margin + (availW - tileSize * (float)_state.width) / 2.0f;
-    float oy = margin + (availH - tileSize * (float)_state.height) / 2.0f;
+    Layout l = computeLayout();
+    float tileSize = l.tileSize;
+    float ox = l.ox;
+    float oy = l.oy;
 
     // tiles
     for (int y = 0; y < _state.height; y++) {
@@ -138,6 +183,8 @@ void App::renderGame() const
         // triangle tip points toward the facing direction (1=N 2=E 3=S 4=W)
         float rot = (float)(p.orientation - 2) * 90.0f;
 
+        if (id == _selected)
+            DrawCircleLines((int)center.x, (int)center.y, radius * 1.7f, WHITE);
         if (p.incanting)
             DrawCircle((int)center.x, (int)center.y, radius * 1.5f, { 255, 255, 0, 110 });
         DrawPoly(center, 3, radius, rot, c);
@@ -151,15 +198,78 @@ void App::renderGame() const
         }
     }
 
-    // HUD
-    if (_state.over) {
-        std::string msg = "Game Over - Winner: " + _state.winner;
-        DrawText(msg.c_str(), 10, GetScreenHeight() - 25, 20, GOLD);
+}
+
+void App::renderPanel() const
+{
+    float px = (float)GetScreenWidth() - PANEL_W;
+    DrawRectangle((int)px, 0, (int)PANEL_W, GetScreenHeight(), { 30, 30, 38, 255 });
+    DrawLine((int)px, 0, (int)px, GetScreenHeight(), { 60, 60, 70, 255 });
+
+    int tx = (int)px + 15;
+    int y = 15;
+
+    DrawText("ZAPPY", tx, y, 26, WHITE);
+    y += 40;
+
+    // global HUD
+    DrawText(TextFormat("Map: %d x %d", _state.width, _state.height),
+             tx, y, 16, LIGHTGRAY); y += 22;
+    DrawText(TextFormat("Players: %d", (int)_state.players.size()),
+             tx, y, 16, LIGHTGRAY); y += 22;
+    DrawText(TextFormat("Eggs: %d", (int)_state.eggs.size()),
+             tx, y, 16, LIGHTGRAY); y += 22;
+    DrawText(TextFormat("Time unit: %d", _state.timeUnit),
+             tx, y, 16, LIGHTGRAY); y += 22;
+    DrawText(TextFormat("Teams: %d", (int)_state.teams.size()),
+             tx, y, 16, LIGHTGRAY); y += 30;
+
+    DrawLine(tx, y, (int)px + (int)PANEL_W - 15, y, { 60, 60, 70, 255 });
+    y += 12;
+
+    // selected player detail
+    auto it = _state.players.find(_selected);
+    if (it == _state.players.end()) {
+        DrawText("Click a player", tx, y, 16, GRAY);
     } else {
-        std::string info = "Map: " + std::to_string(_state.width) + "x" +
-            std::to_string(_state.height) +
-            "  Players: " + std::to_string(_state.players.size()) +
-            "  Speed: " + std::to_string(_state.timeUnit);
-        DrawText(info.c_str(), 10, GetScreenHeight() - 25, 16, LIGHTGRAY);
+        const Player& p = it->second;
+        DrawText(TextFormat("Player #%d", p.id), tx, y, 20, WHITE); y += 28;
+        DrawText(TextFormat("Team: %s", p.team.c_str()), tx, y, 16, LIGHTGRAY); y += 22;
+        DrawText(TextFormat("Level: %d", p.level), tx, y, 16, LIGHTGRAY); y += 22;
+        DrawText(TextFormat("Pos: (%d, %d)", p.x, p.y), tx, y, 16, LIGHTGRAY); y += 22;
+        const char *dir[] = { "?", "North", "East", "South", "West" };
+        int o = (p.orientation >= 1 && p.orientation <= 4) ? p.orientation : 0;
+        DrawText(TextFormat("Facing: %s", dir[o]), tx, y, 16, LIGHTGRAY); y += 28;
+
+        DrawText("Inventory:", tx, y, 16, WHITE); y += 22;
+        for (int i = 0; i < 7; i++) {
+            DrawText(TextFormat("  %-10s %d", RES_NAMES[i], p.inventory[i]),
+                     tx, y, 15, LIGHTGRAY);
+            y += 19;
+        }
+    }
+
+    // server messages at the bottom
+    if (!_state.serverMessages.empty()) {
+        int logY = GetScreenHeight() - 15 - 19 * 6;
+        DrawLine(tx, logY - 10, (int)px + (int)PANEL_W - 15, logY - 10,
+                 { 60, 60, 70, 255 });
+        DrawText("Server log:", tx, logY - 28, 16, WHITE);
+        int n = (int)_state.serverMessages.size();
+        int start = n > 6 ? n - 6 : 0;
+        for (int i = start; i < n; i++) {
+            DrawText(_state.serverMessages[i].c_str(), tx, logY, 13, GRAY);
+            logY += 19;
+        }
+    }
+
+    // game over banner
+    if (_state.over) {
+        DrawRectangle(0, GetScreenHeight() / 2 - 40, GetScreenWidth(), 80,
+                      { 0, 0, 0, 200 });
+        std::string msg = "GAME OVER - Winner: " + _state.winner;
+        int w = MeasureText(msg.c_str(), 30);
+        DrawText(msg.c_str(), (GetScreenWidth() - w) / 2,
+                 GetScreenHeight() / 2 - 15, 30, GOLD);
     }
 }

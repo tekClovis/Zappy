@@ -42,6 +42,7 @@ struct GameState {
     std::map<int, Player> players;
     std::map<int, Egg> eggs;
     std::vector<std::string> teams;
+    std::vector<std::string> serverMessages;
     int timeUnit{ 100 };
     bool over{};
     std::string winner;
