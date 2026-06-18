@@ -19,13 +19,50 @@ static const char *RES_NAMES[] = {
     "food", "linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"
 };
 
+// same index order as RES_NAMES
+static const Color RES_COLORS[] = {
+    GREEN, RAYWHITE, BROWN, DARKBLUE, VIOLET, MAROON, GOLD
+};
+
 static const float PANEL_W = 300.0f;
 static const float MARGIN = 10.0f;
+
+static void drawTileResources(const Tile& t, float tx, float ty, float size)
+{
+    float pad = size * 0.12f;
+    float cell = (size - 2.0f * pad) / 3.0f;
+    float pip = cell * 0.30f;
+    if (pip < 1.5f) pip = 1.5f;
+
+    for (int i = 0; i < 7; i++) {
+        if (t.res[i] <= 0)
+            continue;
+        float cx = tx + pad + cell * ((float)(i % 3) + 0.5f);
+        float cy = ty + pad + cell * ((float)(i / 3) + 0.5f);
+        DrawCircle((int)cx, (int)cy, pip, RES_COLORS[i]);
+        if (size >= 46)
+            DrawText(TextFormat("%d", t.res[i]),
+                     (int)(cx + pip + 1.0f), (int)(cy - pip), 10, RAYWHITE);
+    }
+}
+
+static void drawLegend()
+{
+    int x = 14;
+    int y = 14;
+    DrawRectangle(x - 6, y - 6, 120, 7 * 16 + 12, { 0, 0, 0, 150 });
+    for (int i = 0; i < 7; i++) {
+        DrawCircle(x + 5, y + 8 + i * 16, 5.0f, RES_COLORS[i]);
+        DrawText(RES_NAMES[i], x + 16, y + 2 + i * 16, 12, RAYWHITE);
+    }
+}
 
 App::App(const Args& args) : _parser(_state)
 {
     _net.connect(args.host, args.port);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(1280, 720, "Zappy");
+    SetWindowMinSize(800, 600);
     SetTargetFPS(60);
 }
 
@@ -94,6 +131,9 @@ App::Layout App::computeLayout() const
 
 void App::handleInput()
 {
+    if (IsKeyPressed(KEY_F11))
+        ToggleBorderlessWindowed();
+
     if (_state.width == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         return;
 
@@ -156,11 +196,10 @@ void App::renderGame() const
                 tileSize - 1.0f, tileSize - 1.0f
             };
             DrawRectangleRec(rec, { 34, 85, 34, 255 });
-            // food dot
-            if (_state.map[y][x].res[0] > 0)
-                DrawRectangle((int)rec.x + 2, (int)rec.y + 2, 4, 4, ORANGE);
+            drawTileResources(_state.map[y][x], rec.x, rec.y, tileSize);
         }
     }
+    drawLegend();
 
     // eggs
     for (auto& [id, egg] : _state.eggs) {
