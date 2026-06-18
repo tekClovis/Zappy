@@ -67,19 +67,24 @@ void Parser::parse(const std::string& line)
             _s.players[n].inventory = r;
 
     } else if (tag == "pic") {
-        // mark participating players as incanting
+        // start of an incantation on a tile + mark participating players
         std::istringstream ss(line.substr(4));
         int x, y, l;
         ss >> x >> y >> l;
+        _s.incantations.push_back({ x, y, l });
         std::string tok;
         while (ss >> tok)
             if (!tok.empty() && tok[0] == '#' && _s.players.count(parseId(tok)))
                 _s.players[parseId(tok)].incanting = true;
 
     } else if (tag == "pie") {
-        // unmark incanting players on that tile
-        int x, y, r;
+        // end of an incantation: remove it, flash the result, unmark players
+        int x, y, r = 0;
         sscanf(line.c_str(), "pie %d %d %d", &x, &y, &r);
+        std::erase_if(_s.incantations, [x, y](const Incantation& i) {
+            return i.x == x && i.y == y;
+        });
+        _s.incantResults.push_back({ x, y, r != 0, 2.5f });
         for (auto& [id, p] : _s.players)
             if (p.x == x && p.y == y)
                 p.incanting = false;
