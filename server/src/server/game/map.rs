@@ -88,12 +88,10 @@ impl Tile {
         self.resources[res as usize]
     }
 
-    /// Drop `n` of `res` onto the tile.
     pub fn add(&mut self, res: Resource, n: u32) {
         self.resources[res as usize] += n;
     }
 
-    /// Remove one `res` if present; `true` if one was taken (`Take` semantics).
     pub fn take_one(&mut self, res: Resource) -> bool {
         let slot = &mut self.resources[res as usize];
         if *slot == 0 {
@@ -104,7 +102,6 @@ impl Tile {
     }
 }
 
-/// The world floor: a toroidal `width × height` grid of `Tile`s, row-major.
 pub struct Map {
     pub width: usize,
     pub height: usize,
@@ -112,7 +109,6 @@ pub struct Map {
 }
 
 impl Map {
-    /// An empty map (no resources yet — spawning is the respawn step's job).
     pub fn new(width: usize, height: usize) -> Self {
         Map {
             width,
@@ -139,5 +135,9 @@ impl Map {
     pub fn tile_mut(&mut self, x: usize, y: usize) -> &mut Tile {
         let i = self.index(x, y);
         &mut self.tiles[i]
+    }
+
+    pub fn total(&self, res: Resource) -> u32 {
+        self.tiles.iter().map(|t| t.count(res)).sum()
     }
 }

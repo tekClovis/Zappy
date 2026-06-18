@@ -221,6 +221,7 @@ impl Reactor {
         while let Some(event) = self.sched.pop_due(now) {
             match event {
                 Event::RespawnResources => {
+                    self.world.respawn_resources();
                     self.sched
                         .schedule_units(20, self.f, Event::RespawnResources);
                 }
