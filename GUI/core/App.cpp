@@ -8,6 +8,7 @@
 #include "App.hpp"
 #include <raylib.h>
 #include <algorithm>
+#include <cmath>
 #include <optional>
 #include <string>
 
@@ -116,6 +117,12 @@ void App::update(float dt)
         p.renderX += ((float)p.x - p.renderX) * t;
         p.renderY += ((float)p.y - p.renderY) * t;
     }
+
+    // fade out the incantation result flashes
+    for (auto& r : _state.incantResults)
+        r.timer -= dt;
+    std::erase_if(_state.incantResults,
+                  [](const IncantationResult& r) { return r.timer <= 0.0f; });
 }
 
 float App::uiScale() const
@@ -212,6 +219,30 @@ void App::renderGame() const
             DrawRectangleRec(rec, { 34, 85, 34, 255 });
             drawTileResources(_state.map[y][x], rec.x, rec.y, tileSize);
         }
+    }
+
+    // active incantations: pulsing golden glow on the ritual tile
+    float pulse = 0.5f + 0.5f * (float)std::sin(GetTime() * 6.0);
+    for (const auto& inc : _state.incantations) {
+        Vector2 c = {
+            ox + ((float)inc.x + 0.5f) * tileSize,
+            oy + ((float)inc.y + 0.5f) * tileSize
+        };
+        float rad = tileSize * (0.35f + 0.15f * pulse);
+        DrawCircleV(c, rad, { 255, 215, 0, (unsigned char)(50 + 80 * pulse) });
+        DrawCircleLines((int)c.x, (int)c.y, rad, GOLD);
+    }
+
+    // incantation results: green (success) / red (fail) flash, expanding + fading
+    for (const auto& r : _state.incantResults) {
+        float a = r.timer / 2.5f; // 1 -> 0
+        Vector2 c = {
+            ox + ((float)r.x + 0.5f) * tileSize,
+            oy + ((float)r.y + 0.5f) * tileSize
+        };
+        Color col = r.success ? GREEN : RED;
+        col.a = (unsigned char)(200 * a);
+        DrawCircleV(c, tileSize * (0.4f + 0.5f * (1.0f - a)), col);
     }
     drawLegend(uiScale());
 
