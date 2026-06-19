@@ -5,8 +5,8 @@
 // player (drone: pos, orientation, level, inventory)
 //
 
-use std::collections::VecDeque;
 use super::command::Command;
+use std::collections::VecDeque;
 
 pub const STARVE_INTERVAL_UNITS: u32 = 126;
 
@@ -35,9 +35,9 @@ pub struct Player {
     pub orientation: Orientation,
     pub level: u8,
     pub food: u32,
-    pub queue: VecDeque<Command>, 
+    pub queue: VecDeque<Command>,
     pub busy: bool,
-    pub current_cmd: u64, 
+    pub current_cmd: u64,
     pub cmd_seq: u64,
 }
 

@@ -5,8 +5,6 @@
 // Config
 //
 
-/// Hard caps so a single CLI line can't ask the server to allocate absurd
-/// amounts of state. Generous, but bounded.
 const MIN_DIMENSION: usize = 1;
 const MAX_TEAMS: usize = 100;
 const MAX_CLIENTS_PER_TEAM: usize = 1000;
@@ -39,8 +37,12 @@ impl Config {
         println!("    zappy_server [OPTIONS]\n");
         println!("OPTIONS:");
         println!("    -p <port>       Port number to listen on [default: 4242]");
-        println!("    -c <clients>    Authorized clients per team, 1-{MAX_CLIENTS_PER_TEAM} [default: 10]");
-        println!("    -n <names>...   Team names, up to {MAX_TEAMS} (one or more) [default: GRAPHICAL]");
+        println!(
+            "    -c <clients>    Authorized clients per team, 1-{MAX_CLIENTS_PER_TEAM} [default: 10]"
+        );
+        println!(
+            "    -n <names>...   Team names, up to {MAX_TEAMS} (one or more) [default: GRAPHICAL]"
+        );
         println!("    -f <frequency>  Server frequency (time unit) [default: 100]");
         println!("    -x <x>          World width in tiles, min {MIN_DIMENSION} [default: 10]");
         println!("    -y <y>          World height in tiles, min {MIN_DIMENSION} [default: 10]");

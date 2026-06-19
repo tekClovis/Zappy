@@ -5,6 +5,7 @@
 // command (AI action: parse + time cost + execute)
 //
 
+use super::player::Orientation;
 use super::world::World;
 
 pub const MAX_QUEUED: usize = 10;
@@ -81,8 +82,43 @@ impl Command {
 
     pub fn execute(&self, world: &mut World, player: u32) -> String {
         println!("[cmd] #{player} {self:?}");
-        let _ = world;
         match self {
+            Command::Forward => {
+                if let Some(p) = world.players.get_mut(&player) {
+                    let (dx, dy) = match p.orientation {
+                        Orientation::North => (0, -1),
+                        Orientation::South => (0, 1),
+                        Orientation::East => (1, 0),
+                        Orientation::West => (-1, 0),
+                    };
+                    let (new_x, new_y) = world.map.wrap(p.x as isize + dx, p.y as isize + dy);
+                    p.x = new_x;
+                    p.y = new_y;
+                }
+                "ok".to_string()
+            }
+            Command::Right => {
+                if let Some(p) = world.players.get_mut(&player) {
+                    p.orientation = match p.orientation {
+                        Orientation::North => Orientation::East,
+                        Orientation::East => Orientation::South,
+                        Orientation::South => Orientation::West,
+                        Orientation::West => Orientation::North,
+                    };
+                }
+                "ok".to_string()
+            }
+            Command::Left => {
+                if let Some(p) = world.players.get_mut(&player) {
+                    p.orientation = match p.orientation {
+                        Orientation::North => Orientation::West,
+                        Orientation::West => Orientation::South,
+                        Orientation::South => Orientation::East,
+                        Orientation::East => Orientation::North,
+                    };
+                }
+                "ok".to_string()
+            }
             Command::Look => "[ ]".to_string(),
             Command::Inventory => "[ ]".to_string(),
             Command::ConnectNbr => "0".to_string(),
