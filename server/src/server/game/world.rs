@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::command::{Command, EnqueueError, MAX_QUEUED};
 use super::map::{Map, Resource};
-use super::player::{Orientation, Player};
+use super::player::{Orientation, Player, StarveResult};
 use super::team::{JoinError, Team};
 
 pub struct World {
@@ -60,7 +60,6 @@ impl World {
         self.rng
     }
 
-    /// A uniformly-random tile coordinate on the toroidal map.
     fn random_tile(&mut self) -> (usize, usize) {
         let rx = self.next_rand() as isize;
         let ry = self.next_rand() as isize;
@@ -132,6 +131,20 @@ impl World {
             p.queue.pop_front()?
         };
         Some(cmd.execute(self, player))
+    }
+
+    pub fn consume_food(&mut self, player: u32) -> StarveResult {
+        match self.players.get_mut(&player) {
+            None => StarveResult::Gone,
+            Some(p) => {
+                p.food = p.food.saturating_sub(1);
+                if p.food == 0 {
+                    StarveResult::Died
+                } else {
+                    StarveResult::Survived
+                }
+            }
+        }
     }
 
     pub fn remove_player(&mut self, player: u32) {

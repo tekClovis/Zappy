@@ -6,8 +6,16 @@
 //
 
 use std::collections::VecDeque;
-
 use super::command::Command;
+
+pub const STARVE_INTERVAL_UNITS: u32 = 126;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StarveResult {
+    Survived,
+    Died,
+    Gone,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Orientation {
@@ -27,10 +35,10 @@ pub struct Player {
     pub orientation: Orientation,
     pub level: u8,
     pub food: u32,
-    pub queue: VecDeque<Command>, // pending actions, <= MAX_QUEUED
-    pub busy: bool,               // a command is in flight (player frozen)
-    pub current_cmd: u64,         // id of the in-flight command (0 = none)
-    pub cmd_seq: u64,             // monotonic per-player command counter
+    pub queue: VecDeque<Command>, 
+    pub busy: bool,
+    pub current_cmd: u64, 
+    pub cmd_seq: u64,
 }
 
 impl Player {
