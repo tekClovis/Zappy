@@ -7,11 +7,8 @@
 
 use super::world::World;
 
-/// Per-player ceiling on queued commands (ARCHITECTURE.md §3): an AI may stack up
-/// to 10 actions; anything beyond is dropped.
 pub const MAX_QUEUED: usize = 10;
 
-/// One parsed AI action. `Broadcast`/`Take`/`Set` carry their text argument.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Forward,
@@ -28,7 +25,6 @@ pub enum Command {
     Incantation,
 }
 
-/// Why a line could not be accepted into a player's queue.
 pub enum EnqueueError {
     /// Unknown verb or a missing argument: reply `ko` to the AI.
     BadCommand,
@@ -37,8 +33,6 @@ pub enum EnqueueError {
 }
 
 impl Command {
-    /// Parse one protocol line into a `Command`. Returns `None` for an unknown
-    /// verb or a missing argument (`Take`/`Set`/`Broadcast` need a non-empty one).
     pub fn parse(line: &str) -> Option<Command> {
         let (verb, rest) = match line.trim().split_once(' ') {
             Some((v, r)) => (v, r.trim()),
@@ -88,7 +82,6 @@ impl Command {
     pub fn execute(&self, world: &mut World, player: u32) -> String {
         println!("[cmd] #{player} {self:?}");
         let _ = world;
-        // notify_gui(...) — emit ppo/pgt/pic/... here once the GUI sink exists.
         match self {
             Command::Look => "[ ]".to_string(),
             Command::Inventory => "[ ]".to_string(),

@@ -2,15 +2,11 @@
 // EPITECH PROJECT, 2026
 // ZappyMirror
 // File description:
-// map (toroidal tile grid + per-tile resource counts)
+// map
 //
 
-/// Number of resource types (food + the six elevation stones).
 pub const RESOURCE_COUNT: usize = 7;
 
-/// The seven floor resources. Discriminants are the protocol indices used by the
-/// GUI `bct`/`pin` messages and the `Look`/`Inventory` ordering (ARCHITECTURE.md
-/// §6): `0=food 1=linemate 2=deraumere 3=sibur 4=mendiane 5=phiras 6=thystame`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Resource {
     Food = 0,
@@ -23,7 +19,6 @@ pub enum Resource {
 }
 
 impl Resource {
-    /// All seven resources in protocol-index order.
     pub const ALL: [Resource; RESOURCE_COUNT] = [
         Resource::Food,
         Resource::Linemate,
@@ -34,7 +29,6 @@ impl Resource {
         Resource::Thystame,
     ];
 
-    /// Parse a resource from its protocol name (`Take`/`Set` argument).
     pub fn from_name(name: &str) -> Option<Resource> {
         match name {
             "food" => Some(Resource::Food),
@@ -48,7 +42,6 @@ impl Resource {
         }
     }
 
-    /// Protocol name, as emitted by `Look`/`Inventory`.
     pub fn name(self) -> &'static str {
         match self {
             Resource::Food => "food",
@@ -61,8 +54,6 @@ impl Resource {
         }
     }
 
-    /// Spawn density (ARCHITECTURE.md §7.1): target map quantity is
-    /// `floor(width * height * density)`.
     pub fn density(self) -> f64 {
         match self {
             Resource::Food => 0.5,
@@ -76,8 +67,6 @@ impl Resource {
     }
 }
 
-/// One floor tile: the count of each resource sitting on it. Players and eggs are
-/// tracked by the `World` (located by their own coordinates), not stored here.
 #[derive(Clone, Debug, Default)]
 pub struct Tile {
     pub resources: [u32; RESOURCE_COUNT],
