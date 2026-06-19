@@ -137,8 +137,9 @@ impl World {
         match self.players.get_mut(&player) {
             None => StarveResult::Gone,
             Some(p) => {
-                p.food = p.food.saturating_sub(1);
-                if p.food == 0 {
+                let food = &mut p.inventory[Resource::Food as usize];
+                *food = food.saturating_sub(1);
+                if *food == 0 {
                     StarveResult::Died
                 } else {
                     StarveResult::Survived
@@ -147,11 +148,57 @@ impl World {
         }
     }
 
+    /// Pick one `res` off the player's tile into their inventory. `false` if the
+    /// player is gone or the tile has none.
+    pub fn player_take(&mut self, player: u32, res: Resource) -> bool {
+        let Some(p) = self.players.get_mut(&player) else {
+            return false;
+        };
+        if self.map.tile_mut(p.x, p.y).take_one(res) {
+            p.inventory[res as usize] += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Drop one `res` from the player's inventory onto their tile. `false` if the
+    /// player is gone or holds none.
+    pub fn player_set(&mut self, player: u32, res: Resource) -> bool {
+        let Some(p) = self.players.get_mut(&player) else {
+            return false;
+        };
+        if p.inventory[res as usize] == 0 {
+            return false;
+        }
+        p.inventory[res as usize] -= 1;
+        self.map.tile_mut(p.x, p.y).add(res, 1);
+        true
+    }
+
     pub fn remove_player(&mut self, player: u32) {
         if let Some(p) = self.players.remove(&player) {
             if let Some(team) = self.teams.get_mut(p.team) {
                 team.players.retain(|&id| id != player);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn starvation_drains_food_then_dies() {
+        let names = vec!["team1".to_string()];
+        let mut world = World::new(10, 10, &names, 5);
+        let (id, _) = world.add_player("team1").expect("join");
+
+        // 10 starting food: first 9 ticks survive, the 10th empties it and dies.
+        for _ in 0..9 {
+            assert_eq!(world.consume_food(id), StarveResult::Survived);
+        }
+        assert_eq!(world.consume_food(id), StarveResult::Died);
     }
 }

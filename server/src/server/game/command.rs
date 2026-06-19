@@ -5,6 +5,7 @@
 // command (AI action: parse + time cost + execute)
 //
 
+use super::map::Resource;
 use super::player::Orientation;
 use super::world::World;
 
@@ -120,9 +121,29 @@ impl Command {
                 "ok".to_string()
             }
             Command::Look => "[ ]".to_string(),
-            Command::Inventory => "[ ]".to_string(),
-            Command::ConnectNbr => "0".to_string(),
+            Command::Inventory => world
+                .players
+                .get(&player)
+                .map(|p| p.inventory_string())
+                .unwrap_or_else(|| "ko".to_string()),
+            Command::Take(item) => match Resource::from_name(item) {
+                Some(res) if world.player_take(player, res) => "ok".to_string(),
+                _ => "ko".to_string(),
+            },
+            Command::Set(item) => match Resource::from_name(item) {
+                Some(res) if world.player_set(player, res) => "ok".to_string(),
+                _ => "ko".to_string(),
+            },
             Command::Incantation => "Elevation underway".to_string(),
+            Command::ConnectNbr => "0".to_string(),
+            Command::Broadcast(msg) => {
+                for id in world.players.keys() {
+                    if *id != player {
+                        println!("[broadcast] #{player} -> #{id}: {msg}");
+                    }
+                }
+                "ok".to_string()
+            }
             _ => "ok".to_string(),
         }
     }
