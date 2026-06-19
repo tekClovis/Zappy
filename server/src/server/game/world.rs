@@ -148,34 +148,6 @@ impl World {
         }
     }
 
-    /// Pick one `res` off the player's tile into their inventory. `false` if the
-    /// player is gone or the tile has none.
-    pub fn player_take(&mut self, player: u32, res: Resource) -> bool {
-        let Some(p) = self.players.get_mut(&player) else {
-            return false;
-        };
-        if self.map.tile_mut(p.x, p.y).take_one(res) {
-            p.inventory[res as usize] += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Drop one `res` from the player's inventory onto their tile. `false` if the
-    /// player is gone or holds none.
-    pub fn player_set(&mut self, player: u32, res: Resource) -> bool {
-        let Some(p) = self.players.get_mut(&player) else {
-            return false;
-        };
-        if p.inventory[res as usize] == 0 {
-            return false;
-        }
-        p.inventory[res as usize] -= 1;
-        self.map.tile_mut(p.x, p.y).add(res, 1);
-        true
-    }
-
     pub fn remove_player(&mut self, player: u32) {
         if let Some(p) = self.players.remove(&player) {
             if let Some(team) = self.teams.get_mut(p.team) {

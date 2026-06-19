@@ -126,16 +126,37 @@ impl Command {
                 .get(&player)
                 .map(|p| p.inventory_string())
                 .unwrap_or_else(|| "ko".to_string()),
-            Command::Take(item) => match Resource::from_name(item) {
-                Some(res) if world.player_take(player, res) => "ok".to_string(),
-                _ => "ko".to_string(),
-            },
-            Command::Set(item) => match Resource::from_name(item) {
-                Some(res) if world.player_set(player, res) => "ok".to_string(),
-                _ => "ko".to_string(),
-            },
+            Command::Take(item) => {
+                if let Some(res) = Resource::from_name(item) {
+                    if let Some(p) = world.players.get_mut(&player) {
+                        if world.map.tile_mut(p.x, p.y).take_one(res) {
+                            p.inventory[res as usize] += 1;
+                            return "ok".to_string();
+                        }
+                    }
+                }
+                "ko".to_string()
+            }
+            Command::Set(item) => {
+                if let Some(res) = Resource::from_name(item) {
+                    if let Some(p) = world.players.get_mut(&player) {
+                        if p.inventory[res as usize] > 0 {
+                            p.inventory[res as usize] -= 1;
+                            world.map.tile_mut(p.x, p.y).add(res, 1);
+                            return "ok".to_string();
+                        }
+                    }
+                }
+                "ko".to_string()
+            }
             Command::Incantation => "Elevation underway".to_string(),
-            Command::ConnectNbr => "0".to_string(),
+            Command::ConnectNbr => world
+                .players
+                .get(&player)
+                .and_then(|p| world.teams.get(p.team))
+                .map(|t| t.remaining())
+                .unwrap_or(0)
+                .to_string(),
             Command::Broadcast(msg) => {
                 for id in world.players.keys() {
                     if *id != player {
