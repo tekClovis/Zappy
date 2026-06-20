@@ -6,8 +6,8 @@
 //
 
 use super::map::Resource;
-use super::player::Orientation;
-use super::world::World;
+use super::player::{Orientation, SoundDir};
+use super::world::{Target, World};
 
 pub const MAX_QUEUED: usize = 10;
 
@@ -158,10 +158,50 @@ impl Command {
                 .unwrap_or(0)
                 .to_string(),
             Command::Broadcast(msg) => {
-                for id in world.players.keys() {
-                    if *id != player {
-                        println!("[broadcast] #{player} -> #{id}: {msg}");
+                // Direction K is computed in P2; until then every receiver hears it as 0.
+                let recipients: Vec<u32> = world
+                    .players
+                    .keys()
+                    .copied()
+                    .filter(|id| *id != player)
+                    .collect();
+                for id in recipients {
+                    world
+                        .outbox
+                        .push((Target::Player(id), format!("message 0, {msg}")));
+                }
+                "ok".to_string()
+            }
+            Command::Eject => {
+                let (px, py, orientation) = match world.players.get(&player) {
+                    Some(p) => (p.x, p.y, p.orientation),
+                    None => return "ko".to_string(),
+                };
+                let (dx, dy) = orientation.to_vec();
+                let (new_x, new_y) = world.map.wrap(px as isize + dx, py as isize + dy);
+
+                let pushed: Vec<(u32, SoundDir)> = world
+                    .players
+                    .values()
+                    .filter(|o| o.id != player && o.x == px && o.y == py)
+                    .map(|o| {
+                        let (fdx, fdy) = o.orientation.to_vec();
+                        let dir =
+                            Orientation::from_vec((-dx * fdx - dy * fdy, dy * fdx - dx * fdy))
+                                .unwrap_or(Orientation::North)
+                                .to_song();
+                        (o.id, dir)
+                    })
+                    .collect();
+
+                for (id, dir) in pushed {
+                    if let Some(o) = world.players.get_mut(&id) {
+                        o.x = new_x;
+                        o.y = new_y;
                     }
+                    world
+                        .outbox
+                        .push((Target::Player(id), format!("eject: {dir}")));
                 }
                 "ok".to_string()
             }

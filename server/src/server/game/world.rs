@@ -13,10 +13,22 @@ use super::map::{Map, Resource};
 use super::player::{Orientation, Player, StarveResult};
 use super::team::{JoinError, Team};
 
+/// A destination for a server-pushed line other than the acting player's reply.
+/// Commands write these into `World::outbox`; the reactor drains and routes them.
+#[derive(Debug)]
+pub enum Target {
+    /// One AI player's connection.
+    Player(u32),
+    /// Every connected GUI. Wired once the GUI sink lands.
+    #[allow(dead_code)]
+    AllGui,
+}
+
 pub struct World {
     pub map: Map,
     pub teams: Vec<Team>,
     pub players: HashMap<u32, Player>,
+    pub outbox: Vec<(Target, String)>,
     next_id: u32,
     rng: u64,
 }
@@ -35,11 +47,17 @@ impl World {
                 .map(|name| Team::new(name.clone(), clients))
                 .collect(),
             players: HashMap::new(),
+            outbox: Vec::new(),
             next_id: 1,
             rng: seed,
         };
         world.respawn_resources();
         world
+    }
+
+    /// Hand the queued side-effect lines to the reactor for delivery.
+    pub fn take_outbox(&mut self) -> Vec<(Target, String)> {
+        std::mem::take(&mut self.outbox)
     }
 
     pub fn respawn_resources(&mut self) {

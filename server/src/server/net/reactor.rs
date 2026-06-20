@@ -14,7 +14,7 @@ use std::time::Instant;
 use crate::server::game::command::EnqueueError;
 use crate::server::game::player::{STARVE_INTERVAL_UNITS, StarveResult};
 use crate::server::game::team::JoinError;
-use crate::server::game::world::World;
+use crate::server::game::world::{Target, World};
 use crate::server::net::connection::{ConnState, Connection};
 use crate::server::scheduler::{Event, Scheduler};
 
@@ -218,6 +218,26 @@ impl Reactor {
         }
     }
 
+    /// Route every line a command queued for someone other than the actor.
+    fn deliver_outbox(&mut self) {
+        for (target, line) in self.world.take_outbox() {
+            match target {
+                Target::Player(p) => {
+                    if let Some(conn) = self.conn_for_player(p) {
+                        conn.send_line(&line);
+                    }
+                }
+                Target::AllGui => {
+                    for conn in self.conns.values_mut() {
+                        if matches!(conn.state, ConnState::Gui) {
+                            conn.send_line(&line);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn handle_due_events(&mut self) {
         let now = Instant::now();
         while let Some(event) = self.sched.pop_due(now) {
@@ -257,6 +277,7 @@ impl Reactor {
                 },
             }
         }
+        self.deliver_outbox();
     }
 
     fn reap_closed(&mut self) {
