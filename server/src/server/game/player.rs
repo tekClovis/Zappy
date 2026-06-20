@@ -71,6 +71,22 @@ impl Orientation {
         }
     }
 
+    pub fn sound_dir(self, offset: (isize, isize)) -> u8 {
+        let (dx, dy) = offset;
+        if dx == 0 && dy == 0 {
+            return 0;
+        }
+        let (fx, fy) = self.to_vec();
+        let forward = (dx * fx + dy * fy) as f64; // +ahead
+        let left = (dx * fy - dy * fx) as f64; // +left (= right rotated CCW)
+        let mut angle = left.atan2(forward).to_degrees();
+        if angle < 0.0 {
+            angle += 360.0;
+        }
+        ((angle / 45.0).round() as i64).rem_euclid(8) as u8 + 1
+    }
+
+    #[allow(dead_code)]
     pub fn from_vec(u: (isize, isize)) -> Option<Orientation> {
         match u {
             (0, -1) => Some(Orientation::North),
@@ -161,5 +177,39 @@ mod tests {
         }
         assert_eq!(SoundDir::NorthWest.to_orientation(), None);
         assert_eq!(Orientation::East.to_song() as u8, 7); // PDF trig numbering
+    }
+
+    #[test]
+    fn sound_dir_same_tile_is_zero() {
+        assert_eq!(Orientation::North.sound_dir((0, 0)), 0);
+        assert_eq!(Orientation::East.sound_dir((0, 0)), 0);
+    }
+
+    #[test]
+    fn sound_dir_eight_neighbours_facing_north() {
+        // (dx, dy) world offset (x East, y South) -> K, receiver facing North.
+        let cases = [
+            ((0, -1), 1u8), // ahead
+            ((-1, -1), 2),  // front-left
+            ((-1, 0), 3),   // left
+            ((-1, 1), 4),   // back-left
+            ((0, 1), 5),    // behind
+            ((1, 1), 6),    // back-right
+            ((1, 0), 7),    // right
+            ((1, -1), 8),   // front-right
+        ];
+        for (offset, k) in cases {
+            assert_eq!(Orientation::North.sound_dir(offset), k, "offset {offset:?}");
+        }
+    }
+
+    #[test]
+    fn sound_dir_rotates_with_facing() {
+        // A source directly East in the world is "ahead" for an East-facing
+        // drone and "behind" for a West-facing one.
+        assert_eq!(Orientation::East.sound_dir((1, 0)), 1);
+        assert_eq!(Orientation::West.sound_dir((1, 0)), 5);
+        // Far-field still quantises to the nearest of the 8 tiles.
+        assert_eq!(Orientation::North.sound_dir((5, -1)), 7);
     }
 }

@@ -5,8 +5,10 @@
 // command (AI action: parse + time cost + execute)
 //
 
+use std::collections::HashMap;
+
 use super::map::Resource;
-use super::player::{Orientation, SoundDir};
+use super::player::Orientation;
 use super::world::{Target, World};
 
 pub const MAX_QUEUED: usize = 10;
@@ -120,7 +122,38 @@ impl Command {
                 }
                 "ok".to_string()
             }
-            Command::Look => "[ ]".to_string(),
+            Command::Look => {
+                let (px, py, orientation, level) = match world.players.get(&player) {
+                    Some(p) => (p.x, p.y, p.orientation, p.level),
+                    None => return "ko".to_string(),
+                };
+                let (fx, fy) = orientation.to_vec();
+                // `right` is `forward` rotated 90° clockwise; rows run left→right.
+                let (rx, ry) = (-fy, fx);
+                // One pass over players so each tile is an O(1) lookup, not a re-scan.
+                let mut drones: HashMap<(usize, usize), usize> = HashMap::new();
+                for o in world.players.values() {
+                    *drones.entry((o.x, o.y)).or_insert(0) += 1;
+                }
+                let mut tiles: Vec<String> = Vec::new();
+                for d in 0..=level as isize {
+                    for lat in -d..=d {
+                        let (tx, ty) = world.map.wrap(
+                            px as isize + fx * d + rx * lat,
+                            py as isize + fy * d + ry * lat,
+                        );
+                        let tile = world.map.tile(tx, ty);
+                        let count = drones.get(&(tx, ty)).copied().unwrap_or(0);
+                        let tokens = std::iter::repeat_n("player", count).chain(
+                            Resource::ALL.iter().flat_map(|&res| {
+                                std::iter::repeat_n(res.name(), tile.count(res) as usize)
+                            }),
+                        );
+                        tiles.push(tokens.collect::<Vec<_>>().join(" "));
+                    }
+                }
+                format!("[{}]", tiles.join(", "))
+            }
             Command::Inventory => world
                 .players
                 .get(&player)
@@ -158,50 +191,50 @@ impl Command {
                 .unwrap_or(0)
                 .to_string(),
             Command::Broadcast(msg) => {
-                // Direction K is computed in P2; until then every receiver hears it as 0.
-                let recipients: Vec<u32> = world
+                let (ex, ey) = match world.players.get(&player) {
+                    Some(p) => (p.x, p.y),
+                    None => return "ok".to_string(),
+                };
+
+                let recipients: Vec<(u32, u8)> = world
                     .players
-                    .keys()
-                    .copied()
-                    .filter(|id| *id != player)
+                    .values()
+                    .filter(|o| o.id != player)
+                    .map(|o| {
+                        let offset = world.map.shortest_offset((o.x, o.y), (ex, ey));
+                        (o.id, o.orientation.sound_dir(offset))
+                    })
                     .collect();
-                for id in recipients {
+                for (id, k) in recipients {
                     world
                         .outbox
-                        .push((Target::Player(id), format!("message 0, {msg}")));
+                        .push((Target::Player(id), format!("message {k}, {msg}")));
                 }
                 "ok".to_string()
             }
             Command::Eject => {
                 let (px, py, orientation) = match world.players.get(&player) {
                     Some(p) => (p.x, p.y, p.orientation),
-                    None => return "ko".to_string(),
+                    None => return "ok".to_string(),
                 };
                 let (dx, dy) = orientation.to_vec();
                 let (new_x, new_y) = world.map.wrap(px as isize + dx, py as isize + dy);
 
-                let pushed: Vec<(u32, SoundDir)> = world
+                let pushed: Vec<(u32, u8)> = world
                     .players
                     .values()
                     .filter(|o| o.id != player && o.x == px && o.y == py)
-                    .map(|o| {
-                        let (fdx, fdy) = o.orientation.to_vec();
-                        let dir =
-                            Orientation::from_vec((-dx * fdx - dy * fdy, dy * fdx - dx * fdy))
-                                .unwrap_or(Orientation::North)
-                                .to_song();
-                        (o.id, dir)
-                    })
+                    .map(|o| (o.id, o.orientation.sound_dir((-dx, -dy))))
                     .collect();
 
-                for (id, dir) in pushed {
+                for (id, k) in pushed {
                     if let Some(o) = world.players.get_mut(&id) {
                         o.x = new_x;
                         o.y = new_y;
                     }
                     world
                         .outbox
-                        .push((Target::Player(id), format!("eject: {dir}")));
+                        .push((Target::Player(id), format!("eject: {k}")));
                 }
                 "ok".to_string()
             }

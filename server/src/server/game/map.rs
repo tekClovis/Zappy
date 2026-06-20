@@ -91,6 +91,13 @@ impl Tile {
     }
 }
 
+/// Signed shortest distance from `a` to `b` on a ring of size `n`, in `(-n/2, n/2]`.
+fn ring_delta(a: usize, b: usize, n: usize) -> isize {
+    let n = n as isize;
+    let m = (b as isize - a as isize).rem_euclid(n);
+    if m * 2 > n { m - n } else { m }
+}
+
 pub struct Map {
     pub width: usize,
     pub height: usize,
@@ -114,6 +121,15 @@ impl Map {
         let w = self.width as isize;
         let h = self.height as isize;
         (x.rem_euclid(w) as usize, y.rem_euclid(h) as usize)
+    }
+
+    /// Shortest signed offset from `from` to `to` on the torus, each component
+    /// reduced to `(-n/2, n/2]`. `(0, 0)` means the same tile.
+    pub fn shortest_offset(&self, from: (usize, usize), to: (usize, usize)) -> (isize, isize) {
+        (
+            ring_delta(from.0, to.0, self.width),
+            ring_delta(from.1, to.1, self.height),
+        )
     }
 
     pub fn tile(&self, x: usize, y: usize) -> &Tile {
