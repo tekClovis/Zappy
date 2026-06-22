@@ -5,8 +5,8 @@
 // Server
 //
 
-use super::game::world::World;
 use super::config::Config;
+use super::game::world::World;
 use super::net::reactor::Reactor;
 use std::io::Result;
 use std::net::TcpListener;

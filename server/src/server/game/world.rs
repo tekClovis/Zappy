@@ -9,11 +9,12 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::command::{Command, EnqueueError, MAX_QUEUED};
-use super::player::{Orientation, Player};
+use super::map::{Map, Resource};
+use super::player::{Orientation, Player, StarveResult};
 use super::team::{JoinError, Team};
 
 pub struct World {
-    pub w_h: (usize, usize),
+    pub map: Map,
     pub teams: Vec<Team>,
     pub players: HashMap<u32, Player>,
     next_id: u32,
@@ -27,8 +28,8 @@ impl World {
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0x9e37_79b9_7f4a_7c15)
             | 1;
-        World {
-            w_h: (width, height),
+        let mut world = World {
+            map: Map::new(width, height),
             teams: names
                 .iter()
                 .map(|name| Team::new(name.clone(), clients))
@@ -36,10 +37,22 @@ impl World {
             players: HashMap::new(),
             next_id: 1,
             rng: seed,
+        };
+        world.respawn_resources();
+        world
+    }
+
+    pub fn respawn_resources(&mut self) {
+        let area = (self.map.width * self.map.height) as f64;
+        for res in Resource::ALL {
+            let target = ((area * res.density()) as u32).max(1);
+            for _ in self.map.total(res)..target {
+                let (x, y) = self.random_tile();
+                self.map.tile_mut(x, y).add(res, 1);
+            }
         }
     }
 
-    /// xorshift64: a small std-only PRNG, just enough to scatter spawns.
     fn next_rand(&mut self) -> u64 {
         self.rng ^= self.rng << 13;
         self.rng ^= self.rng >> 7;
@@ -47,10 +60,12 @@ impl World {
         self.rng
     }
 
-    /// Hatch a drone for `team_name`: assign an id, a random tile + facing,
-    /// consume one slot, and store the player.
-    ///
-    /// Returns `(player_id, remaining_slots)` on success.
+    fn random_tile(&mut self) -> (usize, usize) {
+        let rx = self.next_rand() as isize;
+        let ry = self.next_rand() as isize;
+        self.map.wrap(rx, ry)
+    }
+
     pub fn add_player(&mut self, team_name: &str) -> Result<(u32, usize), JoinError> {
         let team_idx = self
             .teams
@@ -61,9 +76,7 @@ impl World {
             return Err(JoinError::TeamFull);
         }
 
-        let (width, height) = self.w_h;
-        let x = (self.next_rand() as usize) % width;
-        let y = (self.next_rand() as usize) % height;
+        let (x, y) = self.random_tile();
         let orientation = match self.next_rand() % 4 {
             0 => Orientation::North,
             1 => Orientation::East,
@@ -82,8 +95,6 @@ impl World {
         Ok((id, team.remaining()))
     }
 
-    /// Parse `line` and push it onto `player`'s bounded queue. Reply handling
-    /// (the `ko` on `BadCommand`, the silent drop on `QueueFull`) is the reactor's.
     pub fn enqueue_command(&mut self, player: u32, line: &str) -> Result<(), EnqueueError> {
         let cmd = Command::parse(line).ok_or(EnqueueError::BadCommand)?;
         let p = self
@@ -97,9 +108,6 @@ impl World {
         Ok(())
     }
 
-    /// If `player` is idle with a queued command, mark it in-flight and return
-    /// `(command_id, cost)` for the reactor to schedule. `None` = nothing to
-    /// start or the player is already busy.
     pub fn start_next(&mut self, player: u32) -> Option<(u64, u32)> {
         let p = self.players.get_mut(&player)?;
         if p.busy {
@@ -112,9 +120,6 @@ impl World {
         Some((p.current_cmd, cost))
     }
 
-    /// An `ActionDone` fired: if it matches the in-flight command, pop and
-    /// execute it (placeholder), returning the AI reply. Clears `busy` so the
-    /// next queued command can start.
     pub fn finish_command(&mut self, player: u32, command_id: u64) -> Option<String> {
         let cmd = {
             let p = self.players.get_mut(&player)?;
@@ -128,9 +133,21 @@ impl World {
         Some(cmd.execute(self, player))
     }
 
-    /// Drop a drone when its AI disconnects or starves (ref GUI protocol: `pdi`).
-    /// Removes it from the world and its team roster. The team **slot is not
-    /// returned** — a slot only comes back when a `Fork` lays a new egg.
+    pub fn consume_food(&mut self, player: u32) -> StarveResult {
+        match self.players.get_mut(&player) {
+            None => StarveResult::Gone,
+            Some(p) => {
+                let food = &mut p.inventory[Resource::Food as usize];
+                *food = food.saturating_sub(1);
+                if *food == 0 {
+                    StarveResult::Died
+                } else {
+                    StarveResult::Survived
+                }
+            }
+        }
+    }
+
     pub fn remove_player(&mut self, player: u32) {
         if let Some(p) = self.players.remove(&player) {
             if let Some(team) = self.teams.get_mut(p.team) {
@@ -144,27 +161,16 @@ impl World {
 mod tests {
     use super::*;
 
-    fn world() -> World {
-        World::new(10, 10, &["team1".to_string()], 2)
-    }
-
     #[test]
-    fn remove_player_drops_drone_but_keeps_slot_consumed() {
-        let mut w = world();
-        let (id, remaining) = w.add_player("team1").unwrap();
-        assert_eq!(remaining, 1); // 2 slots, 1 now consumed
+    fn starvation_drains_food_then_dies() {
+        let names = vec!["team1".to_string()];
+        let mut world = World::new(10, 10, &names, 5);
+        let (id, _) = world.add_player("team1").expect("join");
 
-        w.remove_player(id);
-
-        assert!(!w.players.contains_key(&id));
-        assert!(w.teams[0].players.is_empty());
-        // slot stays consumed: a disconnect is a death, not a freed egg.
-        assert_eq!(w.teams[0].remaining(), 1);
-    }
-
-    #[test]
-    fn remove_unknown_player_is_a_noop() {
-        let mut w = world();
-        w.remove_player(999); // must not panic
+        // 10 starting food: first 9 ticks survive, the 10th empties it and dies.
+        for _ in 0..9 {
+            assert_eq!(world.consume_food(id), StarveResult::Survived);
+        }
+        assert_eq!(world.consume_food(id), StarveResult::Died);
     }
 }

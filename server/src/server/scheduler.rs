@@ -9,8 +9,7 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::time::{Duration, Instant};
 
-/// What should happen, and to whom, when a timer fires.
-#[allow(dead_code)] // most variants land once the World layer exists
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum Event {
     ActionDone { player: u32, command_id: u64 },
@@ -70,8 +69,7 @@ impl Scheduler {
 
     pub fn pop_due(&mut self, now: Instant) -> Option<Event> {
         match self.heap.peek() {
-            Some(Reverse(s))
-                if s.at <= now => self.heap.pop().map(|Reverse(s)| s.event),
+            Some(Reverse(s)) if s.at <= now => self.heap.pop().map(|Reverse(s)| s.event),
             _ => None,
         }
     }

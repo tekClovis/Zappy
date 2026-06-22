@@ -5,25 +5,17 @@
 // Config
 //
 
-/// Hard caps so a single CLI line can't ask the server to allocate absurd
-/// amounts of state. Generous, but bounded.
-const MIN_DIMENSION: usize = 5;
+const MIN_DIMENSION: usize = 1;
 const MAX_TEAMS: usize = 100;
 const MAX_CLIENTS_PER_TEAM: usize = 1000;
 
 #[derive(Debug)]
 pub struct Config {
-    // Define Port Number
     pub port: u16,
-    // Define Max Clients
     pub clients: usize,
-    // Define Teams Names
     pub names: Vec<String>,
-    // Define Time Unit
     pub frequency: u32,
-    // Define World width
     pub x: usize,
-    // Define World height
     pub y: usize,
 }
 
@@ -45,15 +37,18 @@ impl Config {
         println!("    zappy_server [OPTIONS]\n");
         println!("OPTIONS:");
         println!("    -p <port>       Port number to listen on [default: 4242]");
-        println!("    -c <clients>    Authorized clients per team, 1-{MAX_CLIENTS_PER_TEAM} [default: 10]");
-        println!("    -n <names>...   Team names, up to {MAX_TEAMS} (one or more) [default: GRAPHICAL]");
+        println!(
+            "    -c <clients>    Authorized clients per team, 1-{MAX_CLIENTS_PER_TEAM} [default: 10]"
+        );
+        println!(
+            "    -n <names>...   Team names, up to {MAX_TEAMS} (one or more) [default: GRAPHICAL]"
+        );
         println!("    -f <frequency>  Server frequency (time unit) [default: 100]");
         println!("    -x <x>          World width in tiles, min {MIN_DIMENSION} [default: 10]");
         println!("    -y <y>          World height in tiles, min {MIN_DIMENSION} [default: 10]");
         println!("    -h, --help      Print help information");
     }
 
-    /// Read the value following a flag, or fail if it is missing.
     fn value<'a>(args: &'a [String], i: &mut usize, flag: &str) -> Result<&'a str, String> {
         *i += 1;
         args.get(*i)
@@ -61,10 +56,6 @@ impl Config {
             .ok_or_else(|| format!("missing value for {flag}"))
     }
 
-    /// Parse CLI arguments into a `Config`.
-    ///
-    /// Returns `Err(message)` on any malformed argument so the caller can exit
-    /// with code 84 instead of panicking. `-h`/`--help` prints help and exits 0.
     pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Self, String> {
         let mut config = Config::default();
         let args: Vec<String> = args.into_iter().collect();

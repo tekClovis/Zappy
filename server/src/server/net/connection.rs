@@ -9,8 +9,7 @@ use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 
-/// Where a socket sits in the handshake described in ARCHITECTURE.md §3.
-#[allow(dead_code)] // `player` is read once the World layer binds AIs to drones
+#[allow(dead_code)]
 pub enum ConnState {
     Pending,
     Ai { player: u32 },
@@ -18,10 +17,10 @@ pub enum ConnState {
 }
 
 pub struct Connection {
-    pub stream: TcpStream, // set to non-blocking on construction
+    pub stream: TcpStream,
     pub state: ConnState,
-    in_buf: Vec<u8>,       // raw bytes not yet split into lines
-    out_buf: VecDeque<u8>, // bytes waiting to be written
+    in_buf: Vec<u8>,
+    out_buf: VecDeque<u8>,
     pub closed: bool,
 }
 
@@ -46,6 +45,13 @@ impl Connection {
 
     pub fn wants_write(&self) -> bool {
         !self.out_buf.is_empty()
+    }
+
+    /// Send a final line, push it out, and mark the connection for reaping.
+    pub fn send_final(&mut self, line: &str) {
+        self.send_line(line);
+        self.flush();
+        self.closed = true;
     }
 
     pub fn on_readable(&mut self) -> Vec<String> {

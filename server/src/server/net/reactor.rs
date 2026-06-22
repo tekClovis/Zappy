@@ -12,6 +12,7 @@ use std::os::fd::AsRawFd;
 use std::time::Instant;
 
 use crate::server::game::command::EnqueueError;
+use crate::server::game::player::{STARVE_INTERVAL_UNITS, StarveResult};
 use crate::server::game::team::JoinError;
 use crate::server::game::world::World;
 use crate::server::net::connection::{ConnState, Connection};
@@ -184,7 +185,7 @@ impl Reactor {
     }
 
     fn handle_handshake(&mut self, fd: i32, line: String) {
-        let (width, height) = self.world.w_h;
+        let (width, height) = (self.world.map.width, self.world.map.height);
 
         if line == "GRAPHIC" {
             if let Some(conn) = self.conns.get_mut(&fd) {
@@ -201,6 +202,9 @@ impl Reactor {
                     conn.send_line(&remaining.to_string());
                     conn.send_line(&format!("{} {}", width, height));
                 }
+                // First hunger tick; one food unit = STARVE_INTERVAL_UNITS of life.
+                self.sched
+                    .schedule_units(STARVE_INTERVAL_UNITS, self.f, Event::Starve { player });
             }
             Err(err) => {
                 if let Some(conn) = self.conns.get_mut(&fd) {
@@ -208,9 +212,7 @@ impl Reactor {
                         JoinError::UnknownTeam => "ko",
                         JoinError::TeamFull => "0",
                     };
-                    conn.send_line(reply);
-                    conn.flush();
-                    conn.closed = true;
+                    conn.send_final(reply);
                 }
             }
         }
@@ -221,6 +223,7 @@ impl Reactor {
         while let Some(event) = self.sched.pop_due(now) {
             match event {
                 Event::RespawnResources => {
+                    self.world.respawn_resources();
                     self.sched
                         .schedule_units(20, self.f, Event::RespawnResources);
                 }
@@ -235,9 +238,23 @@ impl Reactor {
                 Event::IncantationDone { tile, level } => {
                     let _ = (tile, level);
                 }
-                Event::Starve { player } => {
-                    let _ = player;
-                }
+                Event::Starve { player } => match self.world.consume_food(player) {
+                    StarveResult::Survived => {
+                        self.sched.schedule_units(
+                            STARVE_INTERVAL_UNITS,
+                            self.f,
+                            Event::Starve { player },
+                        );
+                    }
+                    StarveResult::Died => {
+                        // reap_closed removes from world; slot not returned.
+                        if let Some(conn) = self.conn_for_player(player) {
+                            conn.send_final("dead");
+                        }
+                        // TODO(GUI): emit `pdi #player` once the GUI feed exists
+                    }
+                    StarveResult::Gone => {}
+                },
             }
         }
     }

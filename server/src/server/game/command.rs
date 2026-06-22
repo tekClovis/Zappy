@@ -5,13 +5,12 @@
 // command (AI action: parse + time cost + execute)
 //
 
+use super::map::Resource;
+use super::player::Orientation;
 use super::world::World;
 
-/// Per-player ceiling on queued commands (ARCHITECTURE.md §3): an AI may stack up
-/// to 10 actions; anything beyond is dropped.
 pub const MAX_QUEUED: usize = 10;
 
-/// One parsed AI action. `Broadcast`/`Take`/`Set` carry their text argument.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Forward,
@@ -28,7 +27,6 @@ pub enum Command {
     Incantation,
 }
 
-/// Why a line could not be accepted into a player's queue.
 pub enum EnqueueError {
     /// Unknown verb or a missing argument: reply `ko` to the AI.
     BadCommand,
@@ -37,8 +35,6 @@ pub enum EnqueueError {
 }
 
 impl Command {
-    /// Parse one protocol line into a `Command`. Returns `None` for an unknown
-    /// verb or a missing argument (`Take`/`Set`/`Broadcast` need a non-empty one).
     pub fn parse(line: &str) -> Option<Command> {
         let (verb, rest) = match line.trim().split_once(' ') {
             Some((v, r)) => (v, r.trim()),
@@ -87,13 +83,88 @@ impl Command {
 
     pub fn execute(&self, world: &mut World, player: u32) -> String {
         println!("[cmd] #{player} {self:?}");
-        let _ = world;
-        // notify_gui(...) — emit ppo/pgt/pic/... here once the GUI sink exists.
         match self {
+            Command::Forward => {
+                if let Some(p) = world.players.get_mut(&player) {
+                    let (dx, dy) = match p.orientation {
+                        Orientation::North => (0, -1),
+                        Orientation::South => (0, 1),
+                        Orientation::East => (1, 0),
+                        Orientation::West => (-1, 0),
+                    };
+                    let (new_x, new_y) = world.map.wrap(p.x as isize + dx, p.y as isize + dy);
+                    p.x = new_x;
+                    p.y = new_y;
+                }
+                "ok".to_string()
+            }
+            Command::Right => {
+                if let Some(p) = world.players.get_mut(&player) {
+                    p.orientation = match p.orientation {
+                        Orientation::North => Orientation::East,
+                        Orientation::East => Orientation::South,
+                        Orientation::South => Orientation::West,
+                        Orientation::West => Orientation::North,
+                    };
+                }
+                "ok".to_string()
+            }
+            Command::Left => {
+                if let Some(p) = world.players.get_mut(&player) {
+                    p.orientation = match p.orientation {
+                        Orientation::North => Orientation::West,
+                        Orientation::West => Orientation::South,
+                        Orientation::South => Orientation::East,
+                        Orientation::East => Orientation::North,
+                    };
+                }
+                "ok".to_string()
+            }
             Command::Look => "[ ]".to_string(),
-            Command::Inventory => "[ ]".to_string(),
-            Command::ConnectNbr => "0".to_string(),
+            Command::Inventory => world
+                .players
+                .get(&player)
+                .map(|p| p.inventory_string())
+                .unwrap_or_else(|| "ko".to_string()),
+            Command::Take(item) => {
+                if let Some(res) = Resource::from_name(item) {
+                    if let Some(p) = world.players.get_mut(&player) {
+                        if world.map.tile_mut(p.x, p.y).take_one(res) {
+                            p.inventory[res as usize] += 1;
+                            return "ok".to_string();
+                        }
+                    }
+                }
+                "ko".to_string()
+            }
+            Command::Set(item) => {
+                if let Some(res) = Resource::from_name(item) {
+                    if let Some(p) = world.players.get_mut(&player) {
+                        if p.inventory[res as usize] > 0 {
+                            p.inventory[res as usize] -= 1;
+                            world.map.tile_mut(p.x, p.y).add(res, 1);
+                            return "ok".to_string();
+                        }
+                    }
+                }
+                "ko".to_string()
+            }
             Command::Incantation => "Elevation underway".to_string(),
+            Command::ConnectNbr => world
+                .players
+                .get(&player)
+                .and_then(|p| world.teams.get(p.team))
+                .map(|t| t.remaining())
+                .unwrap_or(0)
+                .to_string(),
+            Command::Broadcast(msg) => {
+                for id in world.players.keys() {
+                    if *id != player {
+                        println!("[broadcast] #{player} -> #{id}: {msg}");
+                    }
+                }
+                "ok".to_string()
+            }
             _ => "ok".to_string(),
         }
     }
