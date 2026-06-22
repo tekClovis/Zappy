@@ -22,7 +22,8 @@ SRC_GUI = GUI/main.cpp \
           GUI/core/Network.cpp \
           GUI/core/App.cpp \
           GUI/game/GameState.cpp \
-          GUI/protocol/Parser.cpp \
+          GUI/protocol/Commands.cpp \
+          GUI/protocol/Dispatcher.cpp \
           GUI/render/Renderer2D.cpp \
           GUI/render/Renderer3D.cpp \
 

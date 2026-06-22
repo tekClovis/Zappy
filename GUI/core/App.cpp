@@ -18,7 +18,7 @@
 static const float PANEL_W = 300.0f;
 static const float MARGIN = 10.0f;
 
-App::App(const Args& args) : _parser(_state)
+App::App(const Args& args) : _dispatcher(_state)
 {
     _net.connect(args.host, args.port);
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -189,7 +189,7 @@ void App::processMessages()
                 _phase = Phase::Running;
             }
         } else {
-            _parser.parse(*line);
+            _dispatcher.dispatch(*line);
         }
     }
 }
