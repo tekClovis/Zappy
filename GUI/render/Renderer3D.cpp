@@ -34,20 +34,52 @@ Camera3D Renderer3D::camera() const
     return cam;
 }
 
-void Renderer3D::update(const GameState& state, float)
+void Renderer3D::update(const GameState& state, float dt)
 {
     ensureInit(state);
 
+    // zoom (wheel)
     float wheel = GetMouseWheelMove();
     if (wheel != 0.0f) {
         _dist -= wheel * 2.0f;
         _dist = std::clamp(_dist, 3.0f, 250.0f);
     }
+
+    // rotate (right-drag)
     if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
         Vector2 d = GetMouseDelta();
         _yaw -= d.x * 0.005f;
         _pitch += d.y * 0.005f;
         _pitch = std::clamp(_pitch, 0.2f, 1.5f);
+    }
+
+    // pan along the ground plane (middle-drag or arrow keys)
+    float rx = (float)std::cos(_yaw);          // camera right (ground)
+    float rz = -(float)std::sin(_yaw);
+    float fx = -(float)std::sin(_yaw);         // camera forward (ground)
+    float fz = -(float)std::cos(_yaw);
+    if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)) {
+        Vector2 d = GetMouseDelta();
+        float sp = _dist * 0.0015f;
+        _target.x += (-rx * d.x + fx * d.y) * sp;
+        _target.z += (-rz * d.x + fz * d.y) * sp;
+    }
+    float ks = _dist * 0.8f * dt;
+    if (IsKeyDown(KEY_LEFT))  { _target.x -= rx * ks; _target.z -= rz * ks; }
+    if (IsKeyDown(KEY_RIGHT)) { _target.x += rx * ks; _target.z += rz * ks; }
+    if (IsKeyDown(KEY_UP))    { _target.x += fx * ks; _target.z += fz * ks; }
+    if (IsKeyDown(KEY_DOWN))  { _target.x -= fx * ks; _target.z -= fz * ks; }
+
+    // clamp the focus point to the world bounds
+    _target.x = std::clamp(_target.x, 0.0f, (float)state.width);
+    _target.z = std::clamp(_target.z, 0.0f, (float)state.height);
+
+    // reset camera (R)
+    if (IsKeyPressed(KEY_R)) {
+        _yaw = -0.7f;
+        _pitch = 0.9f;
+        _init = false;
+        ensureInit(state);
     }
 }
 
