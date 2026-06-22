@@ -6,60 +6,16 @@
 */
 
 #include "App.hpp"
+#include "../render/Renderer2D.hpp"
+#include "../render/Palette.hpp"
 #include <raylib.h>
 #include <algorithm>
-#include <cmath>
+#include <memory>
 #include <optional>
 #include <string>
 
-static const Color TEAM_COLORS[] = {
-    RED, BLUE, YELLOW, PURPLE, ORANGE, PINK, SKYBLUE, LIME
-};
-
-static const char *RES_NAMES[] = {
-    "food", "linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"
-};
-
-// same index order as RES_NAMES
-static const Color RES_COLORS[] = {
-    GREEN, RAYWHITE, BROWN, DARKBLUE, VIOLET, MAROON, GOLD
-};
-
 static const float PANEL_W = 300.0f;
 static const float MARGIN = 10.0f;
-
-static void drawTileResources(const Tile& t, float tx, float ty, float size)
-{
-    float pad = size * 0.12f;
-    float cell = (size - 2.0f * pad) / 3.0f;
-    float pip = cell * 0.30f;
-    if (pip < 1.5f) pip = 1.5f;
-
-    for (int i = 0; i < 7; i++) {
-        if (t.res[i] <= 0)
-            continue;
-        float cx = tx + pad + cell * ((float)(i % 3) + 0.5f);
-        float cy = ty + pad + cell * ((float)(i / 3) + 0.5f);
-        DrawCircle((int)cx, (int)cy, pip, RES_COLORS[i]);
-        if (size >= 46)
-            DrawText(TextFormat("%d", t.res[i]),
-                     (int)(cx + pip + 1.0f), (int)(cy - pip), 10, RAYWHITE);
-    }
-}
-
-static void drawLegend(float s)
-{
-    int x = (int)(14 * s);
-    int y = (int)(14 * s);
-    int lh = (int)(16 * s);
-    int fs = (int)(12 * s);
-    DrawRectangle(x - (int)(6 * s), y - (int)(6 * s),
-                  (int)(120 * s), 7 * lh + (int)(12 * s), { 0, 0, 0, 150 });
-    for (int i = 0; i < 7; i++) {
-        DrawCircle(x + (int)(5 * s), y + (int)(8 * s) + i * lh, 5.0f * s, RES_COLORS[i]);
-        DrawText(RES_NAMES[i], x + (int)(16 * s), y + (int)(2 * s) + i * lh, fs, RAYWHITE);
-    }
-}
 
 App::App(const Args& args) : _parser(_state)
 {
@@ -68,6 +24,7 @@ App::App(const Args& args) : _parser(_state)
     InitWindow(1280, 720, "Zappy");
     SetWindowMinSize(800, 600);
     SetTargetFPS(60);
+    _renderer = std::make_unique<Renderer2D>();
 }
 
 App::~App()
@@ -88,7 +45,7 @@ void App::run()
         if (_state.width == 0) {
             renderLoading();
         } else {
-            renderGame();
+            _renderer->draw(_state, mapArea(), _selected);
             renderPanel();
         }
         if (!_net.isConnected()) {
@@ -129,7 +86,6 @@ void App::update(float dt)
         if (dy < -h / 2.0f) dy += h;
         p.renderX += dx * t;
         p.renderY += dy * t;
-        // keep the rendered position inside the map bounds
         if (p.renderX < 0.0f) p.renderX += w;
         if (p.renderX >= w) p.renderX -= w;
         if (p.renderY < 0.0f) p.renderY += h;
@@ -159,6 +115,8 @@ void App::update(float dt)
         f.timer -= dt;
     std::erase_if(_state.eggFx,
                   [](const EggFx& f) { return f.timer <= 0.0f; });
+
+    _renderer->update(_state, dt);
 }
 
 float App::uiScale() const
@@ -172,17 +130,13 @@ float App::panelWidth() const
     return PANEL_W * uiScale();
 }
 
-App::Layout App::computeLayout() const
+Rectangle App::mapArea() const
 {
-    // map area is the screen minus the right-side info panel
-    float availW = (float)GetScreenWidth() - panelWidth() - 2.0f * MARGIN;
-    float availH = (float)GetScreenHeight() - 2.0f * MARGIN;
-    float tileSize = std::min(availW / (float)_state.width,
-                              availH / (float)_state.height);
+    // the world area is the screen minus the right-side info panel
     return {
-        tileSize,
-        MARGIN + (availW - tileSize * (float)_state.width) / 2.0f,
-        MARGIN + (availH - tileSize * (float)_state.height) / 2.0f
+        MARGIN, MARGIN,
+        (float)GetScreenWidth() - panelWidth() - 2.0f * MARGIN,
+        (float)GetScreenHeight() - 2.0f * MARGIN
     };
 }
 
@@ -205,23 +159,10 @@ void App::handleInput()
 
     if (_state.width == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         return;
-
-    Layout l = computeLayout();
-    Vector2 m = GetMousePosition();
-    int tx = (int)((m.x - l.ox) / l.tileSize);
-    int ty = (int)((m.y - l.oy) / l.tileSize);
-
-    _selected = -1;
-    if (tx < 0 || tx >= _state.width || ty < 0 || ty >= _state.height)
-        return;
-    for (auto& [id, p] : _state.players) {
-        if (p.x == tx && p.y == ty) {
-            _selected = id;
-            // ask the server for a fresh inventory of the selected player
-            _net.send("pin #" + std::to_string(id) + "\n");
-            break;
-        }
-    }
+    int id = _renderer->pickPlayer(_state, mapArea(), GetMousePosition());
+    _selected = id;
+    if (id >= 0)
+        _net.send("pin #" + std::to_string(id) + "\n");
 }
 
 void App::processMessages()
@@ -248,136 +189,6 @@ void App::renderLoading() const
     const char *msg = (_phase == Phase::Connecting) ? "Connecting..." : "Loading map...";
     int w = MeasureText(msg, 30);
     DrawText(msg, (GetScreenWidth() - w) / 2, GetScreenHeight() / 2 - 15, 30, WHITE);
-}
-
-void App::renderGame() const
-{
-    Layout l = computeLayout();
-    float tileSize = l.tileSize;
-    float ox = l.ox;
-    float oy = l.oy;
-
-    // tiles
-    for (int y = 0; y < _state.height; y++) {
-        for (int x = 0; x < _state.width; x++) {
-            Rectangle rec = {
-                ox + (float)x * tileSize, oy + (float)y * tileSize,
-                tileSize - 1.0f, tileSize - 1.0f
-            };
-            DrawRectangleRec(rec, { 34, 85, 34, 255 });
-            drawTileResources(_state.map[y][x], rec.x, rec.y, tileSize);
-        }
-    }
-
-    // active incantations: pulsing golden glow on the ritual tile
-    float pulse = 0.5f + 0.5f * (float)std::sin(GetTime() * 6.0);
-    for (const auto& inc : _state.incantations) {
-        Vector2 c = {
-            ox + ((float)inc.x + 0.5f) * tileSize,
-            oy + ((float)inc.y + 0.5f) * tileSize
-        };
-        float rad = tileSize * (0.35f + 0.15f * pulse);
-        DrawCircleV(c, rad, { 255, 215, 0, (unsigned char)(50 + 80 * pulse) });
-        DrawCircleLines((int)c.x, (int)c.y, rad, GOLD);
-    }
-
-    // incantation results: green (success) / red (fail) flash, expanding + fading
-    for (const auto& r : _state.incantResults) {
-        float a = r.timer / 2.5f; // 1 -> 0
-        Vector2 c = {
-            ox + ((float)r.x + 0.5f) * tileSize,
-            oy + ((float)r.y + 0.5f) * tileSize
-        };
-        Color col = r.success ? GREEN : RED;
-        col.a = (unsigned char)(200 * a);
-        DrawCircleV(c, tileSize * (0.4f + 0.5f * (1.0f - a)), col);
-    }
-    drawLegend(uiScale());
-
-    // eggs (pop-in scale during the first 0.4s after spawn)
-    for (auto& [id, egg] : _state.eggs) {
-        float ex = ox + ((float)egg.x + 0.5f) * tileSize;
-        float ey = oy + ((float)egg.y + 0.5f) * tileSize;
-        float pop = std::min(1.0f, egg.age / 0.4f);
-        DrawCircle((int)ex, (int)ey, tileSize * 0.15f * pop, WHITE);
-        DrawCircleLines((int)ex, (int)ey, tileSize * 0.15f * pop, { 200, 200, 200, 255 });
-    }
-
-    // egg hatch (green) / death (gray) bursts
-    for (const auto& f : _state.eggFx) {
-        float a = f.timer / 0.6f;
-        Vector2 c = {
-            ox + ((float)f.x + 0.5f) * tileSize,
-            oy + ((float)f.y + 0.5f) * tileSize
-        };
-        Color col = f.hatched ? GREEN : GRAY;
-        col.a = (unsigned char)(220 * a);
-        DrawCircleLines((int)c.x, (int)c.y, tileSize * (0.15f + 0.4f * (1.0f - a)), col);
-    }
-
-    // players
-    for (auto& [id, p] : _state.players) {
-        Vector2 center = {
-            ox + (p.renderX + 0.5f) * tileSize,
-            oy + (p.renderY + 0.5f) * tileSize
-        };
-        int tidx = 0;
-        for (int i = 0; i < (int)_state.teams.size(); i++)
-            if (_state.teams[i] == p.team) { tidx = i; break; }
-        Color c = TEAM_COLORS[tidx % 8];
-        float radius = tileSize * 0.30f;
-        // triangle tip points toward the facing direction (1=N 2=E 3=S 4=W)
-        float rot = (float)(p.orientation - 2) * 90.0f;
-
-        if (id == _selected)
-            DrawCircleLines((int)center.x, (int)center.y, radius * 1.7f, WHITE);
-        if (p.incanting)
-            DrawCircle((int)center.x, (int)center.y, radius * 1.5f, { 255, 255, 0, 110 });
-        DrawPoly(center, 3, radius, rot, c);
-        DrawPolyLines(center, 3, radius, rot, BLACK);
-
-        if (tileSize >= 16) {
-            std::string lv = std::to_string(p.level);
-            int tw = MeasureText(lv.c_str(), 10);
-            DrawText(lv.c_str(), (int)(center.x - (float)tw / 2.0f),
-                     (int)(center.y - radius - 12.0f), 10, WHITE);
-        }
-    }
-
-    // broadcasts: expanding blue sound wave + message bubble from the emitter
-    for (const auto& b : _state.broadcasts) {
-        auto it = _state.players.find(b.playerId);
-        if (it == _state.players.end())
-            continue;
-        Vector2 c = {
-            ox + (it->second.renderX + 0.5f) * tileSize,
-            oy + (it->second.renderY + 0.5f) * tileSize
-        };
-        float a = b.timer / 3.0f;       // 1 -> 0
-        float grow = 1.0f - a;          // 0 -> 1
-        DrawCircleLines((int)c.x, (int)c.y, tileSize * (0.5f + 2.5f * grow),
-                        { 0, 170, 255, (unsigned char)(220 * a) });
-        if (!b.text.empty()) {
-            int fs = (int)(14 * uiScale());
-            int w = MeasureText(b.text.c_str(), fs);
-            DrawText(b.text.c_str(), (int)(c.x - (float)w / 2.0f),
-                     (int)(c.y - tileSize * 0.6f - (float)fs), fs, SKYBLUE);
-        }
-    }
-
-    // ejections: quick orange burst on the player's tile
-    for (const auto& e : _state.ejects) {
-        auto it = _state.players.find(e.playerId);
-        if (it == _state.players.end())
-            continue;
-        Vector2 c = {
-            ox + (it->second.renderX + 0.5f) * tileSize,
-            oy + (it->second.renderY + 0.5f) * tileSize
-        };
-        float a = e.timer; // 1 -> 0 (lifetime is 1s)
-        DrawCircleV(c, tileSize * (0.3f + 0.6f * (1.0f - a)),
-                    { 255, 140, 0, (unsigned char)(180 * a) });
-    }
 }
 
 void App::renderPanel() const
