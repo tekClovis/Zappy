@@ -11,7 +11,7 @@ use std::net::TcpListener;
 use std::os::fd::AsRawFd;
 use std::time::Instant;
 
-use crate::server::game::command::EnqueueError;
+use crate::server::game::command::{Command, EnqueueError};
 use crate::server::game::player::{STARVE_INTERVAL_UNITS, StarveResult};
 use crate::server::game::team::JoinError;
 use crate::server::game::world::{Target, World};
@@ -172,9 +172,34 @@ impl Reactor {
     }
 
     fn maybe_start(&mut self, player: u32) {
-        if let Some((command_id, cost)) = self.world.start_next(player) {
+        let Some((command_id, cost)) = self.world.start_next(player) else {
+            return;
+        };
+        if !self.world.current_is_incantation(player) {
             self.sched
                 .schedule_units(cost, self.f, Event::ActionDone { player, command_id });
+            return;
+        }
+        // Incantation is two-phase: validate now, then fire `IncantationDone`.
+        match Command::incantation_start(&mut self.world, player) {
+            Some((level, tile, participants)) => {
+                self.sched.schedule_units(
+                    cost,
+                    self.f,
+                    Event::IncantationDone {
+                        tile,
+                        level,
+                        participants,
+                    },
+                );
+            }
+            None => {
+                self.world.abort_current(player);
+                self.world
+                    .outbox
+                    .push((Target::Player(player), "ko".to_string()));
+                self.maybe_start(player);
+            }
         }
     }
 
@@ -202,7 +227,6 @@ impl Reactor {
                     conn.send_line(&remaining.to_string());
                     conn.send_line(&format!("{} {}", width, height));
                 }
-                // First hunger tick; one food unit = STARVE_INTERVAL_UNITS of life.
                 self.sched
                     .schedule_units(STARVE_INTERVAL_UNITS, self.f, Event::Starve { player });
             }
@@ -218,7 +242,6 @@ impl Reactor {
         }
     }
 
-    /// Route every line a command queued for someone other than the actor.
     fn deliver_outbox(&mut self) {
         for (target, line) in self.world.take_outbox() {
             match target {
@@ -255,8 +278,15 @@ impl Reactor {
                     }
                     self.maybe_start(player);
                 }
-                Event::IncantationDone { tile, level } => {
-                    let _ = (tile, level);
+                Event::IncantationDone {
+                    tile,
+                    level,
+                    participants,
+                } => {
+                    Command::incantation_finish(&mut self.world, tile, level, &participants);
+                    for p in participants {
+                        self.maybe_start(p);
+                    }
                 }
                 Event::Starve { player } => match self.world.consume_food(player) {
                     StarveResult::Survived => {
@@ -267,11 +297,9 @@ impl Reactor {
                         );
                     }
                     StarveResult::Died => {
-                        // reap_closed removes from world; slot not returned.
                         if let Some(conn) = self.conn_for_player(player) {
                             conn.send_final("dead");
                         }
-                        // TODO(GUI): emit `pdi #player` once the GUI feed exists
                     }
                     StarveResult::Gone => {}
                 },

@@ -7,11 +7,43 @@
 
 use std::collections::HashMap;
 
-use super::map::Resource;
+use super::map::{RESOURCE_COUNT, Resource, Tile};
 use super::player::Orientation;
 use super::world::{Target, World};
 
 pub const MAX_QUEUED: usize = 10;
+
+/// Players at level 8 a team needs to win the game (§7.5).
+const WIN_PLAYERS: usize = 6;
+
+/// Elevation prerequisites (§7.5), indexed by `level - 1` (level 1→2 .. 7→8).
+/// Each entry is `(required players, [stones by Resource index])`; the food slot
+/// (index 0) is always 0.
+const ELEVATION: [(usize, [u32; RESOURCE_COUNT]); 7] = [
+    (1, [0, 1, 0, 0, 0, 0, 0]),
+    (2, [0, 1, 1, 1, 0, 0, 0]),
+    (2, [0, 2, 0, 1, 0, 2, 0]),
+    (4, [0, 1, 1, 2, 0, 1, 0]),
+    (4, [0, 1, 2, 1, 3, 0, 0]),
+    (6, [0, 1, 2, 3, 0, 1, 0]),
+    (6, [0, 2, 2, 2, 2, 2, 1]),
+];
+
+/// Prerequisites to rise from `level`, or `None` once at the cap (level 8).
+fn elevation(level: u8) -> Option<&'static (usize, [u32; RESOURCE_COUNT])> {
+    if level == 0 || level as usize > ELEVATION.len() {
+        None
+    } else {
+        Some(&ELEVATION[level as usize - 1])
+    }
+}
+
+/// True when `tile` holds at least the `need` stones (by Resource index).
+fn stones_present(tile: &Tile, need: &[u32; RESOURCE_COUNT]) -> bool {
+    need.iter()
+        .enumerate()
+        .all(|(res, &n)| tile.count(Resource::ALL[res]) >= n)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -128,9 +160,7 @@ impl Command {
                     None => return "ko".to_string(),
                 };
                 let (fx, fy) = orientation.to_vec();
-                // `right` is `forward` rotated 90° clockwise; rows run left→right.
                 let (rx, ry) = (-fy, fx);
-                // One pass over players so each tile is an O(1) lookup, not a re-scan.
                 let mut drones: HashMap<(usize, usize), usize> = HashMap::new();
                 for o in world.players.values() {
                     *drones.entry((o.x, o.y)).or_insert(0) += 1;
@@ -240,5 +270,185 @@ impl Command {
             }
             _ => "ok".to_string(),
         }
+    }
+
+    /// Begin an elevation: validate the tile for the actor's level, freeze the
+    /// idle same-level drones sharing it, and announce the ritual. Returns the
+    /// level, tile, and frozen participants (actor first) on success, or `None`
+    /// if the prerequisites are not met. The reactor schedules `IncantationDone`.
+    pub fn incantation_start(
+        world: &mut World,
+        player: u32,
+    ) -> Option<(u8, (usize, usize), Vec<u32>)> {
+        let (px, py, level) = world.players.get(&player).map(|p| (p.x, p.y, p.level))?;
+        let (need_players, need_stones) = *elevation(level)?;
+
+        let mut participants = vec![player];
+        participants.extend(
+            world
+                .players
+                .values()
+                .filter(|o| o.id != player && o.x == px && o.y == py && o.level == level && !o.busy)
+                .map(|o| o.id),
+        );
+
+        if participants.len() < need_players {
+            return None;
+        }
+        if !stones_present(world.map.tile(px, py), &need_stones) {
+            return None;
+        }
+
+        // Actor is already busy from `start_next`; freeze the co-participants.
+        for &id in &participants[1..] {
+            if let Some(o) = world.players.get_mut(&id) {
+                o.busy = true;
+            }
+        }
+        world
+            .outbox
+            .push((Target::Player(player), "Elevation underway".to_string()));
+        let ids = participants
+            .iter()
+            .map(|id| format!("#{id}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        world
+            .outbox
+            .push((Target::AllGui, format!("pic {px} {py} {level} {ids}")));
+        Some((level, (px, py), participants))
+    }
+
+    /// Finish an elevation `300/f` after it began: unfreeze the participants, pop
+    /// the initiator's `Incantation`, then re-check the tile (stones may have been
+    /// taken in the meantime). On success consume the stones, raise every present
+    /// participant one level, and emit the GUI/AI results; on failure reply `ko`.
+    pub fn incantation_finish(
+        world: &mut World,
+        tile: (usize, usize),
+        level: u8,
+        participants: &[u32],
+    ) {
+        let (px, py) = tile;
+        if let Some(&actor) = participants.first() {
+            world.abort_current(actor);
+        }
+        for &id in &participants[1..] {
+            if let Some(o) = world.players.get_mut(&id) {
+                o.busy = false;
+            }
+        }
+
+        let still_on_tile = |w: &World, id: &u32| {
+            w.players
+                .get(id)
+                .is_some_and(|p| p.level == level && p.x == px && p.y == py)
+        };
+        let present: Vec<u32> = participants
+            .iter()
+            .copied()
+            .filter(|id| still_on_tile(world, id))
+            .collect();
+
+        // Unreachable None (level 8): `incantation_start` already rejected it.
+        let Some(&(need_players, need_stones)) = elevation(level) else {
+            return;
+        };
+        if present.len() < need_players || !stones_present(world.map.tile(px, py), &need_stones) {
+            if let Some(&actor) = participants.first() {
+                world.outbox.push((Target::Player(actor), "ko".to_string()));
+            }
+            world
+                .outbox
+                .push((Target::AllGui, format!("pie {px} {py} 0")));
+            return;
+        }
+
+        let cell = world.map.tile_mut(px, py);
+        for (res, &n) in need_stones.iter().enumerate() {
+            cell.take(Resource::ALL[res], n);
+        }
+
+        let new_level = level + 1;
+        for &id in &present {
+            if let Some(p) = world.players.get_mut(&id) {
+                p.level = new_level;
+            }
+            world
+                .outbox
+                .push((Target::Player(id), format!("Current level: {new_level}")));
+            world
+                .outbox
+                .push((Target::AllGui, format!("plv #{id} {new_level}")));
+        }
+        world
+            .outbox
+            .push((Target::AllGui, format!("pie {px} {py} 1")));
+
+        let cell = world.map.tile(px, py);
+        let q = Resource::ALL
+            .iter()
+            .map(|r| cell.count(*r).to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        world
+            .outbox
+            .push((Target::AllGui, format!("bct {px} {py} {q}")));
+
+        let winners: Vec<String> = world
+            .teams
+            .iter()
+            .filter(|t| {
+                t.players
+                    .iter()
+                    .filter(|id| world.players.get(id).is_some_and(|p| p.level >= 8))
+                    .count()
+                    >= WIN_PLAYERS
+            })
+            .map(|t| t.name.clone())
+            .collect();
+        for name in winners {
+            world.outbox.push((Target::AllGui, format!("seg {name}")));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One level-1 drone pinned to a stripped tile at (0, 0), marked busy as
+    /// `start_next` would leave it just before an incantation begins.
+    fn lone_drone_at_origin() -> (World, u32) {
+        let names = vec!["t1".to_string()];
+        let mut world = World::new(10, 10, &names, 5);
+        let (id, _) = world.add_player("t1").expect("join");
+        let p = world.players.get_mut(&id).expect("player");
+        (p.x, p.y, p.busy) = (0, 0, true);
+        for r in Resource::ALL {
+            while world.map.tile_mut(0, 0).take_one(r) {}
+        }
+        (world, id)
+    }
+
+    #[test]
+    fn incantation_elevates_with_required_stone() {
+        let (mut world, id) = lone_drone_at_origin();
+        world.map.tile_mut(0, 0).add(Resource::Linemate, 1);
+
+        let (level, tile, participants) =
+            Command::incantation_start(&mut world, id).expect("level-1 prereqs met");
+        assert_eq!(level, 1);
+        Command::incantation_finish(&mut world, tile, level, &participants);
+
+        assert_eq!(world.players[&id].level, 2);
+        assert_eq!(world.map.tile(0, 0).count(Resource::Linemate), 0);
+    }
+
+    #[test]
+    fn incantation_start_fails_without_stone() {
+        let (mut world, id) = lone_drone_at_origin();
+        assert!(Command::incantation_start(&mut world, id).is_none());
+        assert_eq!(world.players[&id].level, 1);
     }
 }

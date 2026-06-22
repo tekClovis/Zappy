@@ -81,6 +81,10 @@ impl Tile {
         self.resources[res as usize] += n;
     }
 
+    pub fn take(&mut self, res: Resource, n: u32) {
+        self.resources[res as usize] -= n;
+    }
+
     pub fn take_one(&mut self, res: Resource) -> bool {
         let slot = &mut self.resources[res as usize];
         if *slot == 0 {
