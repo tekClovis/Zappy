@@ -34,6 +34,7 @@ struct Egg {
     int id{};
     int playerId{};
     int x{}, y{};
+    float age{}; // render-only: seconds since spawn, for the pop-in animation
 };
 
 struct Incantation {
@@ -58,6 +59,12 @@ struct EjectFx {
     float timer{}; // render-only: seconds left to show the ejection burst
 };
 
+struct EggFx {
+    int x{}, y{};
+    float timer{};   // render-only: seconds left to show the burst
+    bool hatched{};  // true = hatched (ebo), false = died (edi)
+};
+
 struct GameState {
     int width{}, height{};
     std::vector<std::vector<Tile>> map;
@@ -69,6 +76,7 @@ struct GameState {
     std::vector<IncantationResult> incantResults;
     std::vector<Broadcast> broadcasts;
     std::vector<EjectFx> ejects;
+    std::vector<EggFx> eggFx;
     int timeUnit{ 100 };
     bool over{};
     std::string winner;

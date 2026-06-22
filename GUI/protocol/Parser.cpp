@@ -118,12 +118,20 @@ void Parser::parse(const std::string& line)
     } else if (tag == "ebo") {
         int e;
         sscanf(line.c_str(), "ebo #%d", &e);
-        _s.eggs.erase(e);
+        auto it = _s.eggs.find(e);
+        if (it != _s.eggs.end()) {
+            _s.eggFx.push_back({ it->second.x, it->second.y, 0.6f, true });
+            _s.eggs.erase(it);
+        }
 
     } else if (tag == "edi") {
         int e;
         sscanf(line.c_str(), "edi #%d", &e);
-        _s.eggs.erase(e);
+        auto it = _s.eggs.find(e);
+        if (it != _s.eggs.end()) {
+            _s.eggFx.push_back({ it->second.x, it->second.y, 0.6f, false });
+            _s.eggs.erase(it);
+        }
 
     } else if (tag == "sgt") {
         sscanf(line.c_str(), "sgt %d", &_s.timeUnit);
@@ -154,6 +162,16 @@ void Parser::parse(const std::string& line)
         int n = 0;
         sscanf(line.c_str(), "pex #%d", &n);
         _s.ejects.push_back({ n, 1.0f });
+
+    } else if (tag == "suc") {
+        _s.serverMessages.push_back("[server] unknown command (suc)");
+        if (_s.serverMessages.size() > 50)
+            _s.serverMessages.erase(_s.serverMessages.begin());
+
+    } else if (tag == "sbp") {
+        _s.serverMessages.push_back("[server] bad parameter (sbp)");
+        if (_s.serverMessages.size() > 50)
+            _s.serverMessages.erase(_s.serverMessages.begin());
     }
-    // pfk, suc, sbp handled silently
+    // pfk handled silently
 }
