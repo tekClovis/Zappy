@@ -9,13 +9,23 @@
 #include "Palette.hpp"
 #include <algorithm>
 #include <cmath>
+#include <string>
+
+static int teamIndex(const GameState& state, const std::string& team)
+{
+    const auto& teams = state.teams();
+    for (int i = 0; i < (int)teams.size(); i++)
+        if (teams[i] == team)
+            return i;
+    return 0;
+}
 
 void Renderer3D::ensureInit(const GameState& state)
 {
-    if (_init || state.width == 0)
+    if (_init || state.width() == 0)
         return;
-    _target = { (float)state.width / 2.0f, 0.0f, (float)state.height / 2.0f };
-    _dist = (float)std::max(state.width, state.height) * 1.4f + 5.0f;
+    _target = { (float)state.width() / 2.0f, 0.0f, (float)state.height() / 2.0f };
+    _dist = (float)std::max(state.width(), state.height()) * 1.4f + 5.0f;
     _init = true;
 }
 
@@ -54,9 +64,9 @@ void Renderer3D::update(const GameState& state, float dt)
     }
 
     // pan along the ground plane (middle-drag or arrow keys)
-    float rx = (float)std::cos(_yaw);          // camera right (ground)
+    float rx = (float)std::cos(_yaw);
     float rz = -(float)std::sin(_yaw);
-    float fx = -(float)std::sin(_yaw);         // camera forward (ground)
+    float fx = -(float)std::sin(_yaw);
     float fz = -(float)std::cos(_yaw);
     if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)) {
         Vector2 d = GetMouseDelta();
@@ -70,9 +80,8 @@ void Renderer3D::update(const GameState& state, float dt)
     if (IsKeyDown(KEY_UP))    { _target.x += fx * ks; _target.z += fz * ks; }
     if (IsKeyDown(KEY_DOWN))  { _target.x -= fx * ks; _target.z -= fz * ks; }
 
-    // clamp the focus point to the world bounds
-    _target.x = std::clamp(_target.x, 0.0f, (float)state.width);
-    _target.z = std::clamp(_target.z, 0.0f, (float)state.height);
+    _target.x = std::clamp(_target.x, 0.0f, (float)state.width());
+    _target.z = std::clamp(_target.z, 0.0f, (float)state.height());
 
     // reset camera (R)
     if (IsKeyPressed(KEY_R)) {
@@ -91,14 +100,14 @@ void Renderer3D::draw(const GameState& state, Rectangle area, int selected)
     BeginMode3D(cam);
 
     // ground tiles (checkerboard) + resources as small cubes
-    for (int y = 0; y < state.height; y++) {
-        for (int x = 0; x < state.width; x++) {
+    for (int y = 0; y < state.height(); y++) {
+        for (int x = 0; x < state.width(); x++) {
             Vector3 pos = { (float)x + 0.5f, 0.0f, (float)y + 0.5f };
             Color base = ((x + y) % 2 == 0)
                 ? Color{ 34, 85, 34, 255 } : Color{ 42, 99, 42, 255 };
             DrawCube(pos, 1.0f, 0.2f, 1.0f, base);
 
-            const Tile& t = state.map[y][x];
+            const Tile& t = state.tile(x, y);
             int slot = 0;
             for (int i = 0; i < 7; i++) {
                 if (t.res[i] <= 0)
@@ -112,23 +121,20 @@ void Renderer3D::draw(const GameState& state, Rectangle area, int selected)
     }
 
     // eggs (pop-in spheres)
-    for (auto& [id, egg] : state.eggs) {
+    for (const auto& [id, egg] : state.eggs()) {
         float pop = std::min(1.0f, egg.age / 0.4f);
         DrawSphere({ (float)egg.x + 0.5f, 0.25f, (float)egg.y + 0.5f },
                    0.18f * pop, WHITE);
     }
 
     // active incantation glow
-    for (const auto& inc : state.incantations)
+    for (const auto& inc : state.incantations())
         DrawSphere({ (float)inc.x + 0.5f, 0.3f, (float)inc.y + 0.5f },
                    0.55f, { 255, 215, 0, 90 });
 
     // players: oriented cubes
-    for (auto& [id, p] : state.players) {
-        int tidx = 0;
-        for (int i = 0; i < (int)state.teams.size(); i++)
-            if (state.teams[i] == p.team) { tidx = i; break; }
-        Color c = TEAM_COLORS[tidx % 8];
+    for (const auto& [id, p] : state.players()) {
+        Color c = TEAM_COLORS[teamIndex(state, p.team) % 8];
         Vector3 pos = { p.renderX + 0.5f, 0.35f, p.renderY + 0.5f };
 
         if (p.incanting)
@@ -162,7 +168,7 @@ int Renderer3D::pickPlayer(const GameState& state, Rectangle area, Vector2 mouse
     int best = -1;
     float bestDist = 1e30f;
 
-    for (const auto& [id, p] : state.players) {
+    for (const auto& [id, p] : state.players()) {
         Vector3 pos = { p.renderX + 0.5f, 0.35f, p.renderY + 0.5f };
         BoundingBox box = {
             { pos.x - 0.3f, pos.y - 0.3f, pos.z - 0.3f },

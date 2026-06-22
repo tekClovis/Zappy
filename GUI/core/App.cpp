@@ -43,7 +43,7 @@ void App::run()
 
         BeginDrawing();
         ClearBackground({ 20, 20, 20, 255 });
-        if (_state.width == 0) {
+        if (_state.width() == 0) {
             renderLoading();
         } else {
             _renderer->draw(_state, mapArea(), _selected);
@@ -64,60 +64,8 @@ void App::run()
 
 void App::update(float dt)
 {
-    // tiles per second the rendered position catches up to the logical one
-    const float speed = 6.0f;
-    float t = std::min(1.0f, speed * dt);
-
-    float w = (float)_state.width;
-    float h = (float)_state.height;
-    for (auto& [id, p] : _state.players) {
-        if (!p.spawned) {
-            p.renderX = (float)p.x;
-            p.renderY = (float)p.y;
-            p.spawned = true;
-            continue;
-        }
-        // shortest toroidal path so crossing an edge slides out one side
-        // and back in from the other instead of teleporting across the map
-        float dx = (float)p.x - p.renderX;
-        float dy = (float)p.y - p.renderY;
-        if (dx > w / 2.0f) dx -= w;
-        if (dx < -w / 2.0f) dx += w;
-        if (dy > h / 2.0f) dy -= h;
-        if (dy < -h / 2.0f) dy += h;
-        p.renderX += dx * t;
-        p.renderY += dy * t;
-        if (p.renderX < 0.0f) p.renderX += w;
-        if (p.renderX >= w) p.renderX -= w;
-        if (p.renderY < 0.0f) p.renderY += h;
-        if (p.renderY >= h) p.renderY -= h;
-    }
-
-    // fade out the incantation result flashes
-    for (auto& r : _state.incantResults)
-        r.timer -= dt;
-    std::erase_if(_state.incantResults,
-                  [](const IncantationResult& r) { return r.timer <= 0.0f; });
-
-    // fade out broadcast waves and ejection bursts
-    for (auto& b : _state.broadcasts)
-        b.timer -= dt;
-    std::erase_if(_state.broadcasts,
-                  [](const Broadcast& b) { return b.timer <= 0.0f; });
-    for (auto& e : _state.ejects)
-        e.timer -= dt;
-    std::erase_if(_state.ejects,
-                  [](const EjectFx& e) { return e.timer <= 0.0f; });
-
-    // eggs: age (pop-in) + hatch/death bursts
-    for (auto& [id, egg] : _state.eggs)
-        egg.age += dt;
-    for (auto& f : _state.eggFx)
-        f.timer -= dt;
-    std::erase_if(_state.eggFx,
-                  [](const EggFx& f) { return f.timer <= 0.0f; });
-
-    _renderer->update(_state, dt);
+    _state.update(dt);          // entity interpolation + effect timers
+    _renderer->update(_state, dt); // camera
 }
 
 float App::uiScale() const
@@ -156,18 +104,18 @@ void App::handleInput()
     }
 
     // speed control: ask the server to change the time unit (sst)
-    if (_net.isConnected() && _state.width != 0) {
+    if (_net.isConnected() && _state.width() != 0) {
         if (IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD))
-            _net.send("sst " + std::to_string(_state.timeUnit + 10) + "\n");
+            _net.send("sst " + std::to_string(_state.timeUnit() + 10) + "\n");
         if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT)) {
-            int nt = _state.timeUnit - 10;
+            int nt = _state.timeUnit() - 10;
             if (nt < 1)
                 nt = 1;
             _net.send("sst " + std::to_string(nt) + "\n");
         }
     }
 
-    if (_state.width == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (_state.width() == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         return;
     int id = _renderer->pickPlayer(_state, mapArea(), GetMousePosition());
     _selected = id;
@@ -219,23 +167,23 @@ void App::renderPanel() const
     y += 40 * s;
 
     // global HUD
-    DrawText(TextFormat("Map: %d x %d", _state.width, _state.height),
+    DrawText(TextFormat("Map: %d x %d", _state.width(), _state.height()),
              tx, (int)y, hf, LIGHTGRAY); y += hl;
-    DrawText(TextFormat("Players: %d", (int)_state.players.size()),
+    DrawText(TextFormat("Players: %d", (int)_state.players().size()),
              tx, (int)y, hf, LIGHTGRAY); y += hl;
-    DrawText(TextFormat("Eggs: %d", (int)_state.eggs.size()),
+    DrawText(TextFormat("Eggs: %d", (int)_state.eggs().size()),
              tx, (int)y, hf, LIGHTGRAY); y += hl;
-    DrawText(TextFormat("Time unit: %d  [-/+]", _state.timeUnit),
+    DrawText(TextFormat("Time unit: %d  [-/+]", _state.timeUnit()),
              tx, (int)y, hf, LIGHTGRAY); y += hl;
-    DrawText(TextFormat("Teams: %d", (int)_state.teams.size()),
+    DrawText(TextFormat("Teams: %d", (int)_state.teams().size()),
              tx, (int)y, hf, LIGHTGRAY); y += hl;
-    for (int i = 0; i < (int)_state.teams.size(); i++) {
+    for (int i = 0; i < (int)_state.teams().size(); i++) {
         int cnt = 0;
-        for (const auto& [id, p] : _state.players)
-            if (p.team == _state.teams[i]) cnt++;
+        for (const auto& [id, p] : _state.players())
+            if (p.team == _state.teams()[i]) cnt++;
         DrawCircle(tx + (int)(6 * s), (int)y + (int)(7 * s), 5.0f * s,
                    TEAM_COLORS[i % 8]);
-        DrawText(TextFormat("%s (%d)", _state.teams[i].c_str(), cnt),
+        DrawText(TextFormat("%s (%d)", _state.teams()[i].c_str(), cnt),
                  tx + (int)(16 * s), (int)y, (int)(14 * s), LIGHTGRAY);
         y += 20 * s;
     }
@@ -245,8 +193,8 @@ void App::renderPanel() const
     y += 12 * s;
 
     // selected player detail
-    auto it = _state.players.find(_selected);
-    if (it == _state.players.end()) {
+    auto it = _state.players().find(_selected);
+    if (it == _state.players().end()) {
         DrawText("Click a player", tx, (int)y, hf, GRAY);
     } else {
         const Player& p = it->second;
@@ -255,8 +203,8 @@ void App::renderPanel() const
         DrawText(TextFormat("Team: %s", p.team.c_str()), tx, (int)y, hf, LIGHTGRAY); y += hl;
         DrawText(TextFormat("Level: %d", p.level), tx, (int)y, hf, LIGHTGRAY); y += hl;
         // 1 food unit = 126 time units of life; seconds depend on the time unit
-        float lifeSec = _state.timeUnit > 0
-            ? (float)p.inventory[0] * 126.0f / (float)_state.timeUnit : 0.0f;
+        float lifeSec = _state.timeUnit() > 0
+            ? (float)p.inventory[0] * 126.0f / (float)_state.timeUnit() : 0.0f;
         DrawText(TextFormat("Food: %d  (~%.0fs)", p.inventory[0], lifeSec),
                  tx, (int)y, hf, LIGHTGRAY); y += hl;
         DrawText(TextFormat("Pos: (%d, %d)", p.x, p.y), tx, (int)y, hf, LIGHTGRAY); y += hl;
@@ -273,26 +221,27 @@ void App::renderPanel() const
     }
 
     // server messages at the bottom
-    if (!_state.serverMessages.empty()) {
+    if (!_state.serverMessages().empty()) {
         float lineH = 19 * s;
         int logY = GetScreenHeight() - (int)(15 * s) - (int)(lineH * 6);
         DrawLine(tx, logY - (int)(10 * s), right, logY - (int)(10 * s),
                  { 60, 60, 70, 255 });
         DrawText("Server log:", tx, logY - (int)(28 * s), hf, WHITE);
-        int n = (int)_state.serverMessages.size();
+        const auto& msgs = _state.serverMessages();
+        int n = (int)msgs.size();
         int start = n > 6 ? n - 6 : 0;
         float ly = (float)logY;
         for (int i = start; i < n; i++) {
-            DrawText(_state.serverMessages[i].c_str(), tx, (int)ly, (int)(13 * s), GRAY);
+            DrawText(msgs[i].c_str(), tx, (int)ly, (int)(13 * s), GRAY);
             ly += lineH;
         }
     }
 
     // game over banner
-    if (_state.over) {
+    if (_state.isOver()) {
         DrawRectangle(0, GetScreenHeight() / 2 - (int)(40 * s),
                       GetScreenWidth(), (int)(80 * s), { 0, 0, 0, 200 });
-        std::string msg = "GAME OVER - Winner: " + _state.winner;
+        std::string msg = "GAME OVER - Winner: " + _state.winner();
         int fs = (int)(30 * s);
         int w = MeasureText(msg.c_str(), fs);
         DrawText(msg.c_str(), (GetScreenWidth() - w) / 2,

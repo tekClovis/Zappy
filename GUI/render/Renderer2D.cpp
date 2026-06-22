@@ -44,21 +44,30 @@ static void drawLegend(float s)
     }
 }
 
+static int teamIndex(const GameState& state, const std::string& team)
+{
+    const auto& teams = state.teams();
+    for (int i = 0; i < (int)teams.size(); i++)
+        if (teams[i] == team)
+            return i;
+    return 0;
+}
+
 Renderer2D::Layout Renderer2D::computeLayout(const GameState& state,
                                             Rectangle area) const
 {
-    float tileSize = std::min(area.width / (float)state.width,
-                              area.height / (float)state.height);
+    float tileSize = std::min(area.width / (float)state.width(),
+                              area.height / (float)state.height());
     return {
         tileSize,
-        area.x + (area.width - tileSize * (float)state.width) / 2.0f,
-        area.y + (area.height - tileSize * (float)state.height) / 2.0f
+        area.x + (area.width - tileSize * (float)state.width()) / 2.0f,
+        area.y + (area.height - tileSize * (float)state.height()) / 2.0f
     };
 }
 
 void Renderer2D::update(const GameState&, float)
 {
-    // no camera state yet (zoom/pan comes next)
+    // no camera state (the 2D view always fits the map to the area)
 }
 
 void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
@@ -70,20 +79,20 @@ void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
     float scale = (float)GetScreenHeight() / 720.0f;
 
     // tiles + resources
-    for (int y = 0; y < state.height; y++) {
-        for (int x = 0; x < state.width; x++) {
+    for (int y = 0; y < state.height(); y++) {
+        for (int x = 0; x < state.width(); x++) {
             Rectangle rec = {
                 ox + (float)x * tileSize, oy + (float)y * tileSize,
                 tileSize - 1.0f, tileSize - 1.0f
             };
             DrawRectangleRec(rec, { 34, 85, 34, 255 });
-            drawTileResources(state.map[y][x], rec.x, rec.y, tileSize);
+            drawTileResources(state.tile(x, y), rec.x, rec.y, tileSize);
         }
     }
 
     // active incantations: pulsing golden glow on the ritual tile
     float pulse = 0.5f + 0.5f * (float)std::sin(GetTime() * 6.0);
-    for (const auto& inc : state.incantations) {
+    for (const auto& inc : state.incantations()) {
         Vector2 c = {
             ox + ((float)inc.x + 0.5f) * tileSize,
             oy + ((float)inc.y + 0.5f) * tileSize
@@ -94,7 +103,7 @@ void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
     }
 
     // incantation results: green (success) / red (fail) flash, expanding + fading
-    for (const auto& r : state.incantResults) {
+    for (const auto& r : state.incantResults()) {
         float a = r.timer / 2.5f;
         Vector2 c = {
             ox + ((float)r.x + 0.5f) * tileSize,
@@ -107,7 +116,7 @@ void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
     drawLegend(scale);
 
     // eggs (pop-in scale during the first 0.4s after spawn)
-    for (auto& [id, egg] : state.eggs) {
+    for (const auto& [id, egg] : state.eggs()) {
         float ex = ox + ((float)egg.x + 0.5f) * tileSize;
         float ey = oy + ((float)egg.y + 0.5f) * tileSize;
         float pop = std::min(1.0f, egg.age / 0.4f);
@@ -116,7 +125,7 @@ void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
     }
 
     // egg hatch (green) / death (gray) bursts
-    for (const auto& f : state.eggFx) {
+    for (const auto& f : state.eggFx()) {
         float a = f.timer / 0.6f;
         Vector2 c = {
             ox + ((float)f.x + 0.5f) * tileSize,
@@ -128,15 +137,12 @@ void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
     }
 
     // players (triangle pointing toward the facing direction)
-    for (auto& [id, p] : state.players) {
+    for (const auto& [id, p] : state.players()) {
         Vector2 center = {
             ox + (p.renderX + 0.5f) * tileSize,
             oy + (p.renderY + 0.5f) * tileSize
         };
-        int tidx = 0;
-        for (int i = 0; i < (int)state.teams.size(); i++)
-            if (state.teams[i] == p.team) { tidx = i; break; }
-        Color c = TEAM_COLORS[tidx % 8];
+        Color c = TEAM_COLORS[teamIndex(state, p.team) % 8];
         float radius = tileSize * 0.30f;
         float rot = (float)(p.orientation - 2) * 90.0f;
 
@@ -156,9 +162,9 @@ void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
     }
 
     // broadcasts: expanding blue sound wave + message bubble from the emitter
-    for (const auto& b : state.broadcasts) {
-        auto it = state.players.find(b.playerId);
-        if (it == state.players.end())
+    for (const auto& b : state.broadcasts()) {
+        auto it = state.players().find(b.playerId);
+        if (it == state.players().end())
             continue;
         Vector2 c = {
             ox + (it->second.renderX + 0.5f) * tileSize,
@@ -177,9 +183,9 @@ void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
     }
 
     // ejections: quick orange burst on the player's tile
-    for (const auto& e : state.ejects) {
-        auto it = state.players.find(e.playerId);
-        if (it == state.players.end())
+    for (const auto& e : state.ejects()) {
+        auto it = state.players().find(e.playerId);
+        if (it == state.players().end())
             continue;
         Vector2 c = {
             ox + (it->second.renderX + 0.5f) * tileSize,
@@ -191,16 +197,15 @@ void Renderer2D::draw(const GameState& state, Rectangle area, int selected)
     }
 }
 
-int Renderer2D::pickPlayer(const GameState& state, Rectangle area,
-                           Vector2 mouse)
+int Renderer2D::pickPlayer(const GameState& state, Rectangle area, Vector2 mouse)
 {
     Layout l = computeLayout(state, area);
     int tx = (int)((mouse.x - l.ox) / l.tileSize);
     int ty = (int)((mouse.y - l.oy) / l.tileSize);
 
-    if (tx < 0 || tx >= state.width || ty < 0 || ty >= state.height)
+    if (tx < 0 || tx >= state.width() || ty < 0 || ty >= state.height())
         return -1;
-    for (const auto& [id, p] : state.players)
+    for (const auto& [id, p] : state.players())
         if (p.x == tx && p.y == ty)
             return id;
     return -1;
