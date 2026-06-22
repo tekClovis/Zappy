@@ -91,6 +91,15 @@ void App::run()
             renderGame();
             renderPanel();
         }
+        if (!_net.isConnected()) {
+            const char *m = "Connection lost";
+            int fs = 30;
+            int w = MeasureText(m, fs);
+            DrawRectangle(0, GetScreenHeight() / 2 - 30,
+                          GetScreenWidth(), 60, { 0, 0, 0, 200 });
+            DrawText(m, (GetScreenWidth() - w) / 2,
+                     GetScreenHeight() / 2 - 15, fs, RED);
+        }
         EndDrawing();
     }
 }
@@ -101,6 +110,8 @@ void App::update(float dt)
     const float speed = 6.0f;
     float t = std::min(1.0f, speed * dt);
 
+    float w = (float)_state.width;
+    float h = (float)_state.height;
     for (auto& [id, p] : _state.players) {
         if (!p.spawned) {
             p.renderX = (float)p.x;
@@ -108,14 +119,21 @@ void App::update(float dt)
             p.spawned = true;
             continue;
         }
-        // a single Forward only moves one tile, so a bigger gap means a
-        // world wrap-around: snap instead of sliding across the whole map
-        if (std::abs((float)p.x - p.renderX) > 1.5f)
-            p.renderX = (float)p.x;
-        if (std::abs((float)p.y - p.renderY) > 1.5f)
-            p.renderY = (float)p.y;
-        p.renderX += ((float)p.x - p.renderX) * t;
-        p.renderY += ((float)p.y - p.renderY) * t;
+        // shortest toroidal path so crossing an edge slides out one side
+        // and back in from the other instead of teleporting across the map
+        float dx = (float)p.x - p.renderX;
+        float dy = (float)p.y - p.renderY;
+        if (dx > w / 2.0f) dx -= w;
+        if (dx < -w / 2.0f) dx += w;
+        if (dy > h / 2.0f) dy -= h;
+        if (dy < -h / 2.0f) dy += h;
+        p.renderX += dx * t;
+        p.renderY += dy * t;
+        // keep the rendered position inside the map bounds
+        if (p.renderX < 0.0f) p.renderX += w;
+        if (p.renderX >= w) p.renderX -= w;
+        if (p.renderY < 0.0f) p.renderY += h;
+        if (p.renderY >= h) p.renderY -= h;
     }
 
     // fade out the incantation result flashes
@@ -133,6 +151,14 @@ void App::update(float dt)
         e.timer -= dt;
     std::erase_if(_state.ejects,
                   [](const EjectFx& e) { return e.timer <= 0.0f; });
+
+    // eggs: age (pop-in) + hatch/death bursts
+    for (auto& [id, egg] : _state.eggs)
+        egg.age += dt;
+    for (auto& f : _state.eggFx)
+        f.timer -= dt;
+    std::erase_if(_state.eggFx,
+                  [](const EggFx& f) { return f.timer <= 0.0f; });
 }
 
 float App::uiScale() const
@@ -164,6 +190,18 @@ void App::handleInput()
 {
     if (IsKeyPressed(KEY_F11))
         ToggleBorderlessWindowed();
+
+    // speed control: ask the server to change the time unit (sst)
+    if (_net.isConnected() && _state.width != 0) {
+        if (IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD))
+            _net.send("sst " + std::to_string(_state.timeUnit + 10) + "\n");
+        if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT)) {
+            int nt = _state.timeUnit - 10;
+            if (nt < 1)
+                nt = 1;
+            _net.send("sst " + std::to_string(nt) + "\n");
+        }
+    }
 
     if (_state.width == 0 || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         return;
@@ -256,11 +294,25 @@ void App::renderGame() const
     }
     drawLegend(uiScale());
 
-    // eggs
+    // eggs (pop-in scale during the first 0.4s after spawn)
     for (auto& [id, egg] : _state.eggs) {
-        float ex = ox + (float)egg.x * tileSize + tileSize * 0.5f;
-        float ey = oy + (float)egg.y * tileSize + tileSize * 0.5f;
-        DrawCircle((int)ex, (int)ey, tileSize * 0.15f, WHITE);
+        float ex = ox + ((float)egg.x + 0.5f) * tileSize;
+        float ey = oy + ((float)egg.y + 0.5f) * tileSize;
+        float pop = std::min(1.0f, egg.age / 0.4f);
+        DrawCircle((int)ex, (int)ey, tileSize * 0.15f * pop, WHITE);
+        DrawCircleLines((int)ex, (int)ey, tileSize * 0.15f * pop, { 200, 200, 200, 255 });
+    }
+
+    // egg hatch (green) / death (gray) bursts
+    for (const auto& f : _state.eggFx) {
+        float a = f.timer / 0.6f;
+        Vector2 c = {
+            ox + ((float)f.x + 0.5f) * tileSize,
+            oy + ((float)f.y + 0.5f) * tileSize
+        };
+        Color col = f.hatched ? GREEN : GRAY;
+        col.a = (unsigned char)(220 * a);
+        DrawCircleLines((int)c.x, (int)c.y, tileSize * (0.15f + 0.4f * (1.0f - a)), col);
     }
 
     // players
@@ -352,10 +404,21 @@ void App::renderPanel() const
              tx, (int)y, hf, LIGHTGRAY); y += hl;
     DrawText(TextFormat("Eggs: %d", (int)_state.eggs.size()),
              tx, (int)y, hf, LIGHTGRAY); y += hl;
-    DrawText(TextFormat("Time unit: %d", _state.timeUnit),
+    DrawText(TextFormat("Time unit: %d  [-/+]", _state.timeUnit),
              tx, (int)y, hf, LIGHTGRAY); y += hl;
     DrawText(TextFormat("Teams: %d", (int)_state.teams.size()),
-             tx, (int)y, hf, LIGHTGRAY); y += 30 * s;
+             tx, (int)y, hf, LIGHTGRAY); y += hl;
+    for (int i = 0; i < (int)_state.teams.size(); i++) {
+        int cnt = 0;
+        for (const auto& [id, p] : _state.players)
+            if (p.team == _state.teams[i]) cnt++;
+        DrawCircle(tx + (int)(6 * s), (int)y + (int)(7 * s), 5.0f * s,
+                   TEAM_COLORS[i % 8]);
+        DrawText(TextFormat("%s (%d)", _state.teams[i].c_str(), cnt),
+                 tx + (int)(16 * s), (int)y, (int)(14 * s), LIGHTGRAY);
+        y += 20 * s;
+    }
+    y += 10 * s;
 
     DrawLine(tx, (int)y, right, (int)y, { 60, 60, 70, 255 });
     y += 12 * s;
@@ -370,6 +433,11 @@ void App::renderPanel() const
         y += 28 * s;
         DrawText(TextFormat("Team: %s", p.team.c_str()), tx, (int)y, hf, LIGHTGRAY); y += hl;
         DrawText(TextFormat("Level: %d", p.level), tx, (int)y, hf, LIGHTGRAY); y += hl;
+        // 1 food unit = 126 time units of life; seconds depend on the time unit
+        float lifeSec = _state.timeUnit > 0
+            ? (float)p.inventory[0] * 126.0f / (float)_state.timeUnit : 0.0f;
+        DrawText(TextFormat("Food: %d  (~%.0fs)", p.inventory[0], lifeSec),
+                 tx, (int)y, hf, LIGHTGRAY); y += hl;
         DrawText(TextFormat("Pos: (%d, %d)", p.x, p.y), tx, (int)y, hf, LIGHTGRAY); y += hl;
         const char *dir[] = { "?", "North", "East", "South", "West" };
         int o = (p.orientation >= 1 && p.orientation <= 4) ? p.orientation : 0;
