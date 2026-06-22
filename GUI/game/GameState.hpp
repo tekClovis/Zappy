@@ -34,6 +34,35 @@ struct Egg {
     int id{};
     int playerId{};
     int x{}, y{};
+    float age{}; // render-only: seconds since spawn, for the pop-in animation
+};
+
+struct Incantation {
+    int x{}, y{};
+    int level{};
+};
+
+struct IncantationResult {
+    int x{}, y{};
+    bool success{};
+    float timer{}; // render-only: seconds left to show the success/fail flash
+};
+
+struct Broadcast {
+    int playerId{};
+    std::string text;
+    float timer{}; // render-only: seconds left to show the sound wave + message
+};
+
+struct EjectFx {
+    int playerId{};
+    float timer{}; // render-only: seconds left to show the ejection burst
+};
+
+struct EggFx {
+    int x{}, y{};
+    float timer{};   // render-only: seconds left to show the burst
+    bool hatched{};  // true = hatched (ebo), false = died (edi)
 };
 
 struct GameState {
@@ -43,6 +72,11 @@ struct GameState {
     std::map<int, Egg> eggs;
     std::vector<std::string> teams;
     std::vector<std::string> serverMessages;
+    std::vector<Incantation> incantations;
+    std::vector<IncantationResult> incantResults;
+    std::vector<Broadcast> broadcasts;
+    std::vector<EjectFx> ejects;
+    std::vector<EggFx> eggFx;
     int timeUnit{ 100 };
     bool over{};
     std::string winner;

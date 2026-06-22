@@ -29,6 +29,8 @@ private:
     void processMessages();
     void update(float dt);
     void handleInput();
+    float uiScale() const;
+    float panelWidth() const;
     Layout computeLayout() const;
     void renderLoading() const;
     void renderGame() const;

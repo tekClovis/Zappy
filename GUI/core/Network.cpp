@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <cerrno>
 #include <stdexcept>
 
 Network::~Network()
@@ -45,15 +46,26 @@ void Network::connect(const std::string& host, int port)
 
 void Network::send(const std::string& msg)
 {
+    if (_fd < 0)
+        return;
     ::send(_fd, msg.c_str(), msg.size(), 0);
 }
 
 void Network::update()
 {
+    if (_fd < 0)
+        return;
+
     char buf[4096];
     ssize_t n;
     while ((n = recv(_fd, buf, sizeof(buf), 0)) > 0)
         _buf.append(buf, n);
+
+    // n == 0: server closed the connection; n < 0 with a real error: drop it
+    if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+        close(_fd);
+        _fd = -1;
+    }
 }
 
 std::optional<std::string> Network::nextLine()

@@ -67,19 +67,24 @@ void Parser::parse(const std::string& line)
             _s.players[n].inventory = r;
 
     } else if (tag == "pic") {
-        // mark participating players as incanting
+        // start of an incantation on a tile + mark participating players
         std::istringstream ss(line.substr(4));
         int x, y, l;
         ss >> x >> y >> l;
+        _s.incantations.push_back({ x, y, l });
         std::string tok;
         while (ss >> tok)
             if (!tok.empty() && tok[0] == '#' && _s.players.count(parseId(tok)))
                 _s.players[parseId(tok)].incanting = true;
 
     } else if (tag == "pie") {
-        // unmark incanting players on that tile
-        int x, y, r;
+        // end of an incantation: remove it, flash the result, unmark players
+        int x, y, r = 0;
         sscanf(line.c_str(), "pie %d %d %d", &x, &y, &r);
+        std::erase_if(_s.incantations, [x, y](const Incantation& i) {
+            return i.x == x && i.y == y;
+        });
+        _s.incantResults.push_back({ x, y, r != 0, 2.5f });
         for (auto& [id, p] : _s.players)
             if (p.x == x && p.y == y)
                 p.incanting = false;
@@ -113,12 +118,20 @@ void Parser::parse(const std::string& line)
     } else if (tag == "ebo") {
         int e;
         sscanf(line.c_str(), "ebo #%d", &e);
-        _s.eggs.erase(e);
+        auto it = _s.eggs.find(e);
+        if (it != _s.eggs.end()) {
+            _s.eggFx.push_back({ it->second.x, it->second.y, 0.6f, true });
+            _s.eggs.erase(it);
+        }
 
     } else if (tag == "edi") {
         int e;
         sscanf(line.c_str(), "edi #%d", &e);
-        _s.eggs.erase(e);
+        auto it = _s.eggs.find(e);
+        if (it != _s.eggs.end()) {
+            _s.eggFx.push_back({ it->second.x, it->second.y, 0.6f, false });
+            _s.eggs.erase(it);
+        }
 
     } else if (tag == "sgt") {
         sscanf(line.c_str(), "sgt %d", &_s.timeUnit);
@@ -136,6 +149,29 @@ void Parser::parse(const std::string& line)
             if (_s.serverMessages.size() > 50)
                 _s.serverMessages.erase(_s.serverMessages.begin());
         }
+
+    } else if (tag == "pbc") {
+        int n = 0, off = 0;
+        sscanf(line.c_str(), "pbc #%d%n", &n, &off);
+        std::string msg;
+        if (off > 0 && (size_t)(off + 1) < line.size())
+            msg = line.substr(off + 1);
+        _s.broadcasts.push_back({ n, msg, 3.0f });
+
+    } else if (tag == "pex") {
+        int n = 0;
+        sscanf(line.c_str(), "pex #%d", &n);
+        _s.ejects.push_back({ n, 1.0f });
+
+    } else if (tag == "suc") {
+        _s.serverMessages.push_back("[server] unknown command (suc)");
+        if (_s.serverMessages.size() > 50)
+            _s.serverMessages.erase(_s.serverMessages.begin());
+
+    } else if (tag == "sbp") {
+        _s.serverMessages.push_back("[server] bad parameter (sbp)");
+        if (_s.serverMessages.size() > 50)
+            _s.serverMessages.erase(_s.serverMessages.begin());
     }
-    // pex, pbc, pfk, suc, sbp handled silently
+    // pfk handled silently
 }
