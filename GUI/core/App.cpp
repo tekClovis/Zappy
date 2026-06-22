@@ -7,6 +7,7 @@
 
 #include "App.hpp"
 #include "../render/Renderer2D.hpp"
+#include "../render/Renderer3D.hpp"
 #include "../render/Palette.hpp"
 #include <raylib.h>
 #include <algorithm>
@@ -144,6 +145,15 @@ void App::handleInput()
 {
     if (IsKeyPressed(KEY_F11))
         ToggleBorderlessWindowed();
+
+    // toggle 2D / 3D view
+    if (IsKeyPressed(KEY_TAB)) {
+        _mode3D = !_mode3D;
+        if (_mode3D)
+            _renderer = std::make_unique<Renderer3D>();
+        else
+            _renderer = std::make_unique<Renderer2D>();
+    }
 
     // speed control: ask the server to change the time unit (sst)
     if (_net.isConnected() && _state.width != 0) {

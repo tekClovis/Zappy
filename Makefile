@@ -24,6 +24,7 @@ SRC_GUI = GUI/main.cpp \
           GUI/game/GameState.cpp \
           GUI/protocol/Parser.cpp \
           GUI/render/Renderer2D.cpp \
+          GUI/render/Renderer3D.cpp \
 
 OBJ_GUI = $(SRC_GUI:.cpp=.o)
 

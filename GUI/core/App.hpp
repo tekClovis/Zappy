@@ -38,4 +38,5 @@ private:
     std::unique_ptr<IRenderer> _renderer;
     Phase _phase = Phase::Connecting;
     int _selected = -1;
+    bool _mode3D = false;
 };
