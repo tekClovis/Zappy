@@ -11,10 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::command::{Command, EnqueueError, MAX_QUEUED};
 use super::map::{Map, Resource};
 use super::player::{Orientation, Player, StarveResult};
-use super::team::{JoinError, Team};
+use super::team::{Egg, JoinError, Team};
 
-/// A destination for a server-pushed line other than the acting player's reply.
-/// Commands write these into `World::outbox`; the reactor drains and routes them.
 #[derive(Debug)]
 pub enum Target {
     /// One AI player's connection.
@@ -42,20 +40,39 @@ impl World {
             | 1;
         let mut world = World {
             map: Map::new(width, height),
-            teams: names
-                .iter()
-                .map(|name| Team::new(name.clone(), clients))
-                .collect(),
+            teams: names.iter().map(|name| Team::new(name.clone())).collect(),
             players: HashMap::new(),
             outbox: Vec::new(),
             next_id: 1,
             rng: seed,
         };
+        for team_idx in 0..world.teams.len() {
+            for _ in 0..clients {
+                let (x, y) = world.random_tile();
+                world.lay_egg(team_idx, x, y);
+            }
+        }
         world.respawn_resources();
         world
     }
 
-    /// Hand the queued side-effect lines to the reactor for delivery.
+    /// Allocate an id and lay an egg for `team_idx`; returns the id. Used at
+    /// startup (initial slots) and by `Fork`. Caller emits the GUI `enw`/`pfk`.
+    pub fn lay_egg(&mut self, team_idx: usize, x: usize, y: usize) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.teams[team_idx].lay_egg(id, x, y);
+        id
+    }
+
+    pub fn remove_egg(&mut self, egg_id: u32) -> Option<Egg> {
+        self.teams.iter_mut().find_map(|t| t.remove_egg(egg_id))
+    }
+
+    pub fn eggs_at(&self, x: usize, y: usize) -> Vec<u32> {
+        self.teams.iter().flat_map(|t| t.eggs_at(x, y)).collect()
+    }
+
     pub fn take_outbox(&mut self) -> Vec<(Target, String)> {
         std::mem::take(&mut self.outbox)
     }
@@ -90,11 +107,8 @@ impl World {
             .iter()
             .position(|t| t.name == team_name)
             .ok_or(JoinError::UnknownTeam)?;
-        if !self.teams[team_idx].has_free_slot() {
-            return Err(JoinError::TeamFull);
-        }
+        let egg = self.teams[team_idx].hatch().ok_or(JoinError::TeamFull)?;
 
-        let (x, y) = self.random_tile();
         let orientation = match self.next_rand() % 4 {
             0 => Orientation::North,
             1 => Orientation::East,
@@ -105,12 +119,11 @@ impl World {
         let id = self.next_id;
         self.next_id += 1;
         self.players
-            .insert(id, Player::new(id, team_idx, x, y, orientation));
-
-        let team = &mut self.teams[team_idx];
-        team.slots -= 1;
-        team.players.push(id);
-        Ok((id, team.remaining()))
+            .insert(id, Player::new(id, team_idx, egg.x, egg.y, orientation));
+        self.teams[team_idx].players.push(id);
+        self.outbox
+            .push((Target::AllGui, format!("ebo #{}", egg.id)));
+        Ok((id, self.teams[team_idx].remaining_eggs()))
     }
 
     pub fn enqueue_command(&mut self, player: u32, line: &str) -> Result<(), EnqueueError> {
