@@ -17,7 +17,7 @@ use crate::server::game::player::{STARVE_INTERVAL_UNITS, StarveResult};
 use crate::server::game::team::JoinError;
 use crate::server::game::world::{Target, World};
 use crate::server::net::connection::{ConnState, Connection};
-use crate::server::scheduler::{Event, Scheduler};
+use crate::server::net::scheduler::{Event, Scheduler};
 
 enum Route {
     Handshake,

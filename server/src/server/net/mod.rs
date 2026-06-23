@@ -1,2 +1,3 @@
-pub mod connection;
+mod connection;
 pub mod reactor;
+mod scheduler;

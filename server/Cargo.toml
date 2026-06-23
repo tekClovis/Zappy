@@ -5,10 +5,10 @@ edition = "2024"
 
 include = [
     "src/main.rs",
-    "src/server/mod.rs",
     "src/server/server.rs",
+    "src/server/mod.rs",
     "src/server/config.rs",
-    "src/server/scheduler.rs",
+    "src/server/net/scheduler.rs",
     "src/server/net/mod.rs",
     "src/server/net/connection.rs",
     "src/server/net/reactor.rs",
