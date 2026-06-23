@@ -11,10 +11,11 @@ use std::net::TcpListener;
 use std::os::fd::AsRawFd;
 use std::time::Instant;
 
-use crate::server::game::command::EnqueueError;
+use crate::server::game::command::{Command, EnqueueError};
+use crate::server::game::gui::{self, GuiParse, GuiRequest};
 use crate::server::game::player::{STARVE_INTERVAL_UNITS, StarveResult};
 use crate::server::game::team::JoinError;
-use crate::server::game::world::World;
+use crate::server::game::world::{Target, World};
 use crate::server::net::connection::{ConnState, Connection};
 use crate::server::scheduler::{Event, Scheduler};
 
@@ -74,6 +75,7 @@ impl Reactor {
             self.handle_io();
             self.handle_due_events();
             self.reap_closed();
+            self.deliver_outbox();
         }
     }
 
@@ -155,7 +157,20 @@ impl Reactor {
         match route {
             Route::Handshake => self.handle_handshake(fd, line),
             Route::Ai(player) => self.handle_command(fd, player, line),
-            Route::Gui => {} // GUI requests (mct, ...) land later
+            Route::Gui => self.handle_gui_request(fd, line),
+        }
+    }
+
+    fn handle_gui_request(&mut self, fd: i32, line: String) {
+        let replies = match GuiRequest::parse(&line) {
+            Ok(req) => req.resolve(&self.world, &mut self.f),
+            Err(GuiParse::BadParam) => vec!["sbp".to_string()],
+            Err(GuiParse::Unknown) => vec!["suc".to_string()],
+        };
+        if let Some(conn) = self.conns.get_mut(&fd) {
+            for reply in replies {
+                conn.send_line(&reply);
+            }
         }
     }
 
@@ -172,9 +187,34 @@ impl Reactor {
     }
 
     fn maybe_start(&mut self, player: u32) {
-        if let Some((command_id, cost)) = self.world.start_next(player) {
+        let Some((command_id, cost)) = self.world.start_next(player) else {
+            return;
+        };
+        if !self.world.current_is_incantation(player) {
             self.sched
                 .schedule_units(cost, self.f, Event::ActionDone { player, command_id });
+            return;
+        }
+        // Incantation is two-phase: validate now, then fire `IncantationDone`.
+        match Command::incantation_start(&mut self.world, player) {
+            Some((level, tile, participants)) => {
+                self.sched.schedule_units(
+                    cost,
+                    self.f,
+                    Event::IncantationDone {
+                        tile,
+                        level,
+                        participants,
+                    },
+                );
+            }
+            None => {
+                self.world.abort_current(player);
+                self.world
+                    .outbox
+                    .push((Target::Player(player), "ko".to_string()));
+                self.maybe_start(player);
+            }
         }
     }
 
@@ -188,9 +228,12 @@ impl Reactor {
         let (width, height) = (self.world.map.width, self.world.map.height);
 
         if line == "GRAPHIC" {
+            let feed = gui::init_feed(&self.world, self.f);
             if let Some(conn) = self.conns.get_mut(&fd) {
                 conn.state = ConnState::Gui;
-                // GUI init feed
+                for feed_line in feed {
+                    conn.send_line(&feed_line);
+                }
             }
             return;
         }
@@ -202,7 +245,6 @@ impl Reactor {
                     conn.send_line(&remaining.to_string());
                     conn.send_line(&format!("{} {}", width, height));
                 }
-                // First hunger tick; one food unit = STARVE_INTERVAL_UNITS of life.
                 self.sched
                     .schedule_units(STARVE_INTERVAL_UNITS, self.f, Event::Starve { player });
             }
@@ -213,6 +255,25 @@ impl Reactor {
                         JoinError::TeamFull => "0",
                     };
                     conn.send_final(reply);
+                }
+            }
+        }
+    }
+
+    fn deliver_outbox(&mut self) {
+        for (target, line) in self.world.take_outbox() {
+            match target {
+                Target::Player(p) => {
+                    if let Some(conn) = self.conn_for_player(p) {
+                        conn.send_line(&line);
+                    }
+                }
+                Target::AllGui => {
+                    for conn in self.conns.values_mut() {
+                        if matches!(conn.state, ConnState::Gui) {
+                            conn.send_line(&line);
+                        }
+                    }
                 }
             }
         }
@@ -235,8 +296,15 @@ impl Reactor {
                     }
                     self.maybe_start(player);
                 }
-                Event::IncantationDone { tile, level } => {
-                    let _ = (tile, level);
+                Event::IncantationDone {
+                    tile,
+                    level,
+                    participants,
+                } => {
+                    Command::incantation_finish(&mut self.world, tile, level, &participants);
+                    for p in participants {
+                        self.maybe_start(p);
+                    }
                 }
                 Event::Starve { player } => match self.world.consume_food(player) {
                     StarveResult::Survived => {
@@ -247,11 +315,9 @@ impl Reactor {
                         );
                     }
                     StarveResult::Died => {
-                        // reap_closed removes from world; slot not returned.
                         if let Some(conn) = self.conn_for_player(player) {
                             conn.send_final("dead");
                         }
-                        // TODO(GUI): emit `pdi #player` once the GUI feed exists
                     }
                     StarveResult::Gone => {}
                 },

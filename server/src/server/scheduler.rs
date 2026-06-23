@@ -12,10 +12,19 @@ use std::time::{Duration, Instant};
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum Event {
-    ActionDone { player: u32, command_id: u64 },
+    ActionDone {
+        player: u32,
+        command_id: u64,
+    },
     RespawnResources,
-    IncantationDone { tile: (usize, usize), level: u8 },
-    Starve { player: u32 },
+    IncantationDone {
+        tile: (usize, usize),
+        level: u8,
+        participants: Vec<u32>,
+    },
+    Starve {
+        player: u32,
+    },
 }
 
 struct Scheduled {

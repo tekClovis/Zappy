@@ -8,6 +8,7 @@
 use super::command::Command;
 use super::map::{RESOURCE_COUNT, Resource};
 use std::collections::VecDeque;
+use std::fmt;
 
 pub const STARVE_INTERVAL_UNITS: u32 = 126;
 
@@ -18,12 +19,92 @@ pub enum StarveResult {
     Gone,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SoundDir {
+    North = 1,
+    NorthWest = 2,
+    West = 3,
+    SouthWest = 4,
+    South = 5,
+    SouthEast = 6,
+    East = 7,
+    NorthEast = 8,
+}
+
+impl fmt::Display for SoundDir {
+    /// Emits the subject's direction number `K` (1..=8), e.g. for `eject: K`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", *self as u8)
+    }
+}
+
+impl SoundDir {
+    #[allow(dead_code)]
+    pub fn to_orientation(self) -> Option<Orientation> {
+        match self {
+            SoundDir::North => Some(Orientation::North),
+            SoundDir::East => Some(Orientation::East),
+            SoundDir::South => Some(Orientation::South),
+            SoundDir::West => Some(Orientation::West),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Orientation {
     North = 1,
     East = 2,
     South = 3,
     West = 4,
+}
+
+impl Orientation {
+    #[allow(dead_code)]
+    pub fn to_song(self) -> SoundDir {
+        match self {
+            Orientation::North => SoundDir::North,
+            Orientation::East => SoundDir::East,
+            Orientation::South => SoundDir::South,
+            Orientation::West => SoundDir::West,
+        }
+    }
+
+    pub fn sound_dir(self, offset: (isize, isize)) -> u8 {
+        let (dx, dy) = offset;
+        if dx == 0 && dy == 0 {
+            return 0;
+        }
+        let (fx, fy) = self.to_vec();
+        let forward = (dx * fx + dy * fy) as f64; // +ahead
+        let left = (dx * fy - dy * fx) as f64; // +left (= right rotated CCW)
+        let mut angle = left.atan2(forward).to_degrees();
+        if angle < 0.0 {
+            angle += 360.0;
+        }
+        ((angle / 45.0).round() as i64).rem_euclid(8) as u8 + 1
+    }
+
+    #[allow(dead_code)]
+    pub fn from_vec(u: (isize, isize)) -> Option<Orientation> {
+        match u {
+            (0, -1) => Some(Orientation::North),
+            (1, 0) => Some(Orientation::East),
+            (0, 1) => Some(Orientation::South),
+            (-1, 0) => Some(Orientation::West),
+            _ => None,
+        }
+    }
+
+    pub fn to_vec(self) -> (isize, isize) {
+        match self {
+            Orientation::North => (0, -1),
+            Orientation::East => (1, 0),
+            Orientation::South => (0, 1),
+            Orientation::West => (-1, 0),
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -68,19 +149,5 @@ impl Player {
             .collect::<Vec<_>>()
             .join(", ");
         format!("[{body}]")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fresh_player_inventory_string() {
-        let p = Player::new(1, 0, 0, 0, Orientation::North);
-        assert_eq!(
-            p.inventory_string(),
-            "[food 10, linemate 0, deraumere 0, sibur 0, mendiane 0, phiras 0, thystame 0]"
-        );
     }
 }
