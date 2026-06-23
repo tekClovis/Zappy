@@ -14,6 +14,7 @@ include = [
     "src/server/net/reactor.rs",
     "src/server/game/mod.rs",
     "src/server/game/command.rs",
+    "src/server/game/gui.rs",
     "src/server/game/map.rs",
     "src/server/game/world.rs",
     "src/server/game/player.rs",

@@ -12,6 +12,7 @@ use std::os::fd::AsRawFd;
 use std::time::Instant;
 
 use crate::server::game::command::{Command, EnqueueError};
+use crate::server::game::gui::{self, GuiParse, GuiRequest};
 use crate::server::game::player::{STARVE_INTERVAL_UNITS, StarveResult};
 use crate::server::game::team::JoinError;
 use crate::server::game::world::{Target, World};
@@ -74,6 +75,7 @@ impl Reactor {
             self.handle_io();
             self.handle_due_events();
             self.reap_closed();
+            self.deliver_outbox();
         }
     }
 
@@ -155,7 +157,20 @@ impl Reactor {
         match route {
             Route::Handshake => self.handle_handshake(fd, line),
             Route::Ai(player) => self.handle_command(fd, player, line),
-            Route::Gui => {} // GUI requests (mct, ...) land later
+            Route::Gui => self.handle_gui_request(fd, line),
+        }
+    }
+
+    fn handle_gui_request(&mut self, fd: i32, line: String) {
+        let replies = match GuiRequest::parse(&line) {
+            Ok(req) => req.resolve(&self.world, &mut self.f),
+            Err(GuiParse::BadParam) => vec!["sbp".to_string()],
+            Err(GuiParse::Unknown) => vec!["suc".to_string()],
+        };
+        if let Some(conn) = self.conns.get_mut(&fd) {
+            for reply in replies {
+                conn.send_line(&reply);
+            }
         }
     }
 
@@ -213,9 +228,12 @@ impl Reactor {
         let (width, height) = (self.world.map.width, self.world.map.height);
 
         if line == "GRAPHIC" {
+            let feed = gui::init_feed(&self.world, self.f);
             if let Some(conn) = self.conns.get_mut(&fd) {
                 conn.state = ConnState::Gui;
-                // GUI init feed
+                for feed_line in feed {
+                    conn.send_line(&feed_line);
+                }
             }
             return;
         }
@@ -305,7 +323,6 @@ impl Reactor {
                 },
             }
         }
-        self.deliver_outbox();
     }
 
     fn reap_closed(&mut self) {

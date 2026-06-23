@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use super::gui::GuiEvent;
 use super::map::{RESOURCE_COUNT, Resource, Tile};
 use super::player::Orientation;
 use super::world::{Target, World};
@@ -130,6 +131,7 @@ impl Command {
                     p.x = new_x;
                     p.y = new_y;
                 }
+                world.emit(GuiEvent::Moved(player));
                 "ok".to_string()
             }
             Command::Right => {
@@ -141,6 +143,7 @@ impl Command {
                         Orientation::West => Orientation::North,
                     };
                 }
+                world.emit(GuiEvent::Moved(player));
                 "ok".to_string()
             }
             Command::Left => {
@@ -152,6 +155,7 @@ impl Command {
                         Orientation::East => Orientation::North,
                     };
                 }
+                world.emit(GuiEvent::Moved(player));
                 "ok".to_string()
             }
             Command::Look => {
@@ -190,27 +194,50 @@ impl Command {
                 .map(|p| p.inventory_string())
                 .unwrap_or_else(|| "ko".to_string()),
             Command::Take(item) => {
-                if let Some(res) = Resource::from_name(item) {
-                    if let Some(p) = world.players.get_mut(&player) {
-                        if world.map.tile_mut(p.x, p.y).take_one(res) {
-                            p.inventory[res as usize] += 1;
-                            return "ok".to_string();
-                        }
-                    }
+                let Some(res) = Resource::from_name(item) else {
+                    return "ko".to_string();
+                };
+                let Some((x, y)) = world.players.get(&player).map(|p| (p.x, p.y)) else {
+                    return "ko".to_string();
+                };
+                if !world.map.tile_mut(x, y).take_one(res) {
+                    return "ko".to_string();
                 }
-                "ko".to_string()
+                if let Some(p) = world.players.get_mut(&player) {
+                    p.inventory[res as usize] += 1;
+                }
+                world.emit(GuiEvent::Collected {
+                    player,
+                    res: res as usize,
+                });
+                world.emit(GuiEvent::Inventory(player));
+                world.emit(GuiEvent::Tile(x, y));
+                "ok".to_string()
             }
             Command::Set(item) => {
-                if let Some(res) = Resource::from_name(item) {
-                    if let Some(p) = world.players.get_mut(&player) {
-                        if p.inventory[res as usize] > 0 {
-                            p.inventory[res as usize] -= 1;
-                            world.map.tile_mut(p.x, p.y).add(res, 1);
-                            return "ok".to_string();
-                        }
+                let Some(res) = Resource::from_name(item) else {
+                    return "ko".to_string();
+                };
+                let Some((x, y)) = world.players.get(&player).map(|p| (p.x, p.y)) else {
+                    return "ko".to_string();
+                };
+                {
+                    let Some(p) = world.players.get_mut(&player) else {
+                        return "ko".to_string();
+                    };
+                    if p.inventory[res as usize] == 0 {
+                        return "ko".to_string();
                     }
+                    p.inventory[res as usize] -= 1;
                 }
-                "ko".to_string()
+                world.map.tile_mut(x, y).add(res, 1);
+                world.emit(GuiEvent::Dropped {
+                    player,
+                    res: res as usize,
+                });
+                world.emit(GuiEvent::Inventory(player));
+                world.emit(GuiEvent::Tile(x, y));
+                "ok".to_string()
             }
             Command::Fork => {
                 let (px, py, team) = match world.players.get(&player) {
@@ -218,12 +245,13 @@ impl Command {
                     None => return "ok".to_string(),
                 };
                 let egg_id = world.lay_egg(team, px, py);
-                world
-                    .outbox
-                    .push((Target::AllGui, format!("pfk #{player}")));
-                world
-                    .outbox
-                    .push((Target::AllGui, format!("enw #{egg_id} #{player} {px} {py}")));
+                world.emit(GuiEvent::Forked(player));
+                world.emit(GuiEvent::EggLaid {
+                    egg: egg_id,
+                    player,
+                    x: px,
+                    y: py,
+                });
                 "ok".to_string()
             }
             Command::Incantation => "Elevation underway".to_string(),
@@ -254,6 +282,10 @@ impl Command {
                         .outbox
                         .push((Target::Player(id), format!("message {k}, {msg}")));
                 }
+                world.emit(GuiEvent::Broadcast {
+                    player,
+                    msg: msg.clone(),
+                });
                 "ok".to_string()
             }
             Command::Eject => {
@@ -271,6 +303,7 @@ impl Command {
                     .map(|o| (o.id, o.orientation.sound_dir((-dx, -dy))))
                     .collect();
 
+                let ejected = !pushed.is_empty();
                 for (id, k) in pushed {
                     if let Some(o) = world.players.get_mut(&id) {
                         o.x = new_x;
@@ -279,12 +312,14 @@ impl Command {
                     world
                         .outbox
                         .push((Target::Player(id), format!("eject: {k}")));
+                    world.emit(GuiEvent::Moved(id));
+                }
+                if ejected {
+                    world.emit(GuiEvent::Ejected(player));
                 }
                 for egg_id in world.eggs_at(px, py) {
                     if world.remove_egg(egg_id).is_some() {
-                        world
-                            .outbox
-                            .push((Target::AllGui, format!("edi #{egg_id}")));
+                        world.emit(GuiEvent::EggDestroyed(egg_id));
                     }
                 }
                 "ok".to_string()
@@ -323,15 +358,19 @@ impl Command {
         world
             .outbox
             .push((Target::Player(player), "Elevation underway".to_string()));
-        let ids = participants
-            .iter()
-            .map(|id| format!("#{id}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        world
-            .outbox
-            .push((Target::AllGui, format!("pic {px} {py} {level} {ids}")));
+        world.emit(GuiEvent::IncantationStart {
+            x: px,
+            y: py,
+            level,
+            participants: participants.clone(),
+        });
         Some((level, (px, py), participants))
+    }
+
+    #[cfg(test)]
+    fn run(&self, world: &mut World, player: u32) -> (String, Vec<String>) {
+        let reply = self.execute(world, player);
+        (reply, super::world::drain_gui(world))
     }
 
     pub fn incantation_finish(
@@ -368,9 +407,11 @@ impl Command {
             if let Some(&actor) = participants.first() {
                 world.outbox.push((Target::Player(actor), "ko".to_string()));
             }
-            world
-                .outbox
-                .push((Target::AllGui, format!("pie {px} {py} 0")));
+            world.emit(GuiEvent::IncantationEnd {
+                x: px,
+                y: py,
+                result: 0,
+            });
             return;
         }
 
@@ -387,23 +428,14 @@ impl Command {
             world
                 .outbox
                 .push((Target::Player(id), format!("Current level: {new_level}")));
-            world
-                .outbox
-                .push((Target::AllGui, format!("plv #{id} {new_level}")));
+            world.emit(GuiEvent::LevelChanged(id));
         }
-        world
-            .outbox
-            .push((Target::AllGui, format!("pie {px} {py} 1")));
-
-        let cell = world.map.tile(px, py);
-        let q = Resource::ALL
-            .iter()
-            .map(|r| cell.count(*r).to_string())
-            .collect::<Vec<_>>()
-            .join(" ");
-        world
-            .outbox
-            .push((Target::AllGui, format!("bct {px} {py} {q}")));
+        world.emit(GuiEvent::IncantationEnd {
+            x: px,
+            y: py,
+            result: 1,
+        });
+        world.emit(GuiEvent::Tile(px, py));
 
         let winners: Vec<String> = world
             .teams
@@ -418,7 +450,78 @@ impl Command {
             .map(|t| t.name.clone())
             .collect();
         for name in winners {
-            world.outbox.push((Target::AllGui, format!("seg {name}")));
+            world.emit(GuiEvent::GameWon(name));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::game::world::names;
+
+    fn world_with_player() -> (World, u32) {
+        let mut w = World::new(5, 5, &names(&["t1"]), 1);
+        let (id, _) = w.add_player("t1").expect("a free slot");
+        let _ = w.take_outbox(); // drain spawn events
+        (w, id)
+    }
+
+    #[test]
+    fn forward_emits_ppo() {
+        let (mut w, id) = world_with_player();
+        let (reply, gui) = Command::Forward.run(&mut w, id);
+        assert_eq!(reply, "ok");
+        assert_eq!(gui.len(), 1);
+        assert!(gui[0].starts_with(&format!("ppo #{id} ")));
+    }
+
+    #[test]
+    fn take_success_emits_pgt_pin_bct() {
+        let (mut w, id) = world_with_player();
+        let (x, y) = w.players.get(&id).map(|p| (p.x, p.y)).unwrap();
+        w.map.tile_mut(x, y).add(Resource::Linemate, 1);
+        let (reply, gui) = Command::Take("linemate".to_string()).run(&mut w, id);
+        assert_eq!(reply, "ok");
+        let li = Resource::Linemate as usize;
+        assert!(gui.contains(&format!("pgt #{id} {li}")));
+        assert!(gui.iter().any(|l| l.starts_with(&format!("pin #{id} "))));
+        assert!(gui.iter().any(|l| l.starts_with(&format!("bct {x} {y} "))));
+    }
+
+    #[test]
+    fn take_missing_resource_is_ko_and_silent() {
+        let (mut w, id) = world_with_player();
+        let (x, y) = w.players.get(&id).map(|p| (p.x, p.y)).unwrap();
+        for res in Resource::ALL {
+            let n = w.map.tile(x, y).count(res);
+            if n > 0 {
+                w.map.tile_mut(x, y).take(res, n);
+            }
+        }
+        let (reply, gui) = Command::Take("linemate".to_string()).run(&mut w, id);
+        assert_eq!(reply, "ko");
+        assert!(gui.is_empty());
+    }
+
+    #[test]
+    fn set_success_emits_pdr_pin_bct() {
+        let (mut w, id) = world_with_player();
+        let (x, y) = w.players.get(&id).map(|p| (p.x, p.y)).unwrap();
+        // Fresh player has food; drop one.
+        let (reply, gui) = Command::Set("food".to_string()).run(&mut w, id);
+        assert_eq!(reply, "ok");
+        let fi = Resource::Food as usize;
+        assert!(gui.contains(&format!("pdr #{id} {fi}")));
+        assert!(gui.iter().any(|l| l.starts_with(&format!("pin #{id} "))));
+        assert!(gui.iter().any(|l| l.starts_with(&format!("bct {x} {y} "))));
+    }
+
+    #[test]
+    fn broadcast_emits_pbc() {
+        let (mut w, id) = world_with_player();
+        let (reply, gui) = Command::Broadcast("hello world".to_string()).run(&mut w, id);
+        assert_eq!(reply, "ok");
+        assert!(gui.contains(&format!("pbc #{id} hello world")));
     }
 }

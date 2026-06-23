@@ -5,20 +5,18 @@
 // world
 //
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::command::{Command, EnqueueError, MAX_QUEUED};
+use super::gui::GuiEvent;
 use super::map::{Map, Resource};
 use super::player::{Orientation, Player, StarveResult};
 use super::team::{Egg, JoinError, Team};
 
 #[derive(Debug)]
 pub enum Target {
-    /// One AI player's connection.
     Player(u32),
-    /// Every connected GUI. Wired once the GUI sink lands.
-    #[allow(dead_code)]
     AllGui,
 }
 
@@ -56,8 +54,6 @@ impl World {
         world
     }
 
-    /// Allocate an id and lay an egg for `team_idx`; returns the id. Used at
-    /// startup (initial slots) and by `Fork`. Caller emits the GUI `enw`/`pfk`.
     pub fn lay_egg(&mut self, team_idx: usize, x: usize, y: usize) -> u32 {
         let id = self.next_id;
         self.next_id += 1;
@@ -77,14 +73,25 @@ impl World {
         std::mem::take(&mut self.outbox)
     }
 
+    pub fn emit(&mut self, event: GuiEvent) {
+        if let Some(line) = event.encode(self) {
+            self.outbox.push((Target::AllGui, line));
+        }
+    }
+
     pub fn respawn_resources(&mut self) {
         let area = (self.map.width * self.map.height) as f64;
+        let mut touched: HashSet<(usize, usize)> = HashSet::new();
         for res in Resource::ALL {
             let target = ((area * res.density()) as u32).max(1);
             for _ in self.map.total(res)..target {
                 let (x, y) = self.random_tile();
                 self.map.tile_mut(x, y).add(res, 1);
+                touched.insert((x, y));
             }
+        }
+        for (x, y) in touched {
+            self.emit(GuiEvent::Tile(x, y));
         }
     }
 
@@ -121,8 +128,8 @@ impl World {
         self.players
             .insert(id, Player::new(id, team_idx, egg.x, egg.y, orientation));
         self.teams[team_idx].players.push(id);
-        self.outbox
-            .push((Target::AllGui, format!("ebo #{}", egg.id)));
+        self.emit(GuiEvent::EggHatched(egg.id));
+        self.emit(GuiEvent::NewPlayer(id));
         Ok((id, self.teams[team_idx].remaining_eggs()))
     }
 
@@ -151,8 +158,6 @@ impl World {
         Some((p.current_cmd, cost))
     }
 
-    /// True when the player's in-flight command is an `Incantation` — the reactor
-    /// routes it through `incantation_start`/`incantation_finish`, not `ActionDone`.
     pub fn current_is_incantation(&self, player: u32) -> bool {
         self.players
             .get(&player)
@@ -160,7 +165,6 @@ impl World {
             .is_some_and(|c| *c == Command::Incantation)
     }
 
-    /// Drop the in-flight command without running it (start-check ko fast-fail).
     pub fn abort_current(&mut self, player: u32) {
         if let Some(p) = self.players.get_mut(&player) {
             p.busy = false;
@@ -202,6 +206,73 @@ impl World {
             if let Some(team) = self.teams.get_mut(p.team) {
                 team.players.retain(|&id| id != player);
             }
+            self.emit(GuiEvent::PlayerDied(player));
         }
+    }
+}
+
+/// Test helper: drain the outbox, keeping only the GUI-bound lines.
+#[cfg(test)]
+pub(crate) fn drain_gui(world: &mut World) -> Vec<String> {
+    world
+        .take_outbox()
+        .into_iter()
+        .filter_map(|(t, l)| matches!(t, Target::AllGui).then_some(l))
+        .collect()
+}
+
+/// Test helper: owned team names from string literals.
+#[cfg(test)]
+pub(crate) fn names(n: &[&str]) -> Vec<String> {
+    n.iter().map(|s| s.to_string()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_player_emits_ebo_then_pnw() {
+        let mut w = World::new(3, 3, &names(&["t1"]), 1);
+        let (id, _) = w.add_player("t1").expect("a free slot");
+        let lines = drain_gui(&mut w);
+        let ebo = lines.iter().position(|l| l.starts_with("ebo #")).unwrap();
+        let pnw = lines
+            .iter()
+            .position(|l| l.starts_with(&format!("pnw #{id} ")))
+            .unwrap();
+        assert!(ebo < pnw, "ebo must precede pnw");
+    }
+
+    #[test]
+    fn remove_player_emits_pdi() {
+        let mut w = World::new(3, 3, &names(&["t1"]), 1);
+        let (id, _) = w.add_player("t1").expect("a free slot");
+        let _ = drain_gui(&mut w); // drain spawn events
+        w.remove_player(id);
+        assert!(drain_gui(&mut w).contains(&format!("pdi #{id}")));
+    }
+
+    #[test]
+    fn respawn_emits_bct_for_touched_tiles_only() {
+        let mut w = World::new(2, 2, &names(&["t1"]), 0);
+        let _ = drain_gui(&mut w); // drain the startup respawn
+        // Drain to a fresh slate, then deplete and respawn deterministically.
+        for y in 0..2 {
+            for x in 0..2 {
+                for res in Resource::ALL {
+                    let n = w.map.tile(x, y).count(res);
+                    if n > 0 {
+                        w.map.tile_mut(x, y).take(res, n);
+                    }
+                }
+            }
+        }
+        w.respawn_resources();
+        let lines = drain_gui(&mut w);
+        assert!(!lines.is_empty());
+        assert!(lines.iter().all(|l| l.starts_with("bct ")));
+        // Never more than one bct per tile (2x2 = 4 tiles).
+        assert!(lines.len() <= 4);
     }
 }
