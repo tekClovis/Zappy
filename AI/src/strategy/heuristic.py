@@ -43,8 +43,11 @@ class HeuristicStrategy(Strategy):
         self._pid_leader = ""
         self._food = 0
         self._respond_to_br = False
+        self._grind_low_food = False
+        self._block_cpt_mate_dir = 0
 
         # LEADER
+        self._leader_can_incant_lvl_8 = False
         self._setted_down_resources = False
 
         # FOLLOWER
@@ -52,6 +55,7 @@ class HeuristicStrategy(Strategy):
 
         # SOLO
         self._mate_direction = None
+        self._start_ask_incant = False
         self._pid_to_help = ""
 
 
@@ -79,16 +83,22 @@ class HeuristicStrategy(Strategy):
         elif isinstance(event, MessageEvent) and event.text.startswith("HELP_"): # Broadcast HELP_<level>_<pid>
             level_part = event.text[len("HELP_"):len("HELP_") + 1]
             if not level_part.isdigit():
+                # print(f"(HELP) LEVEL PART PAS BON: {level_part}")
                 return
             pid_part = event.text[len("HELP_") + 2:]
             if not pid_part.isdigit() and pid_part != "LEADER":
+                # print(f"(HELP) PID PART PAS BON: {pid_part}")
                 return
             self._others[pid_part] = int(level_part)
             if int(level_part) != self._level:
+                # print(f"(HELP) PAS MON LEVEL: lvl: {level_part}, my_lvl: {self._level}")
                 return
             if self._pid_to_help != "" and pid_part != self._pid_to_help:
+                # print(f"(HELP) PID DIFFERENT DE PID TO HELP | pid_part: {pid_part}, pid_to_help: {self._pid_to_help}")
                 return
             self._pid_to_help = pid_part
+            # print("(HELP) PID TO HELP GOOD")
+            # if self._food >= _FOOD_CRITICAL or self._mate_direction is not None:
             self._mate_direction = event.direction
             self._movement = Movement.STOP if event.direction == 0 else Movement.RUN
             self._wait_broadcast = False
@@ -96,13 +106,17 @@ class HeuristicStrategy(Strategy):
         elif isinstance(event, MessageEvent) and event.text.startswith("SUCCESS_HELP_"): # Broadcast SUCCESS_HELP_<level>_<pid>
             level_part = event.text[len("SUCCESS_HELP_"):len("SUCCESS_HELP_") + 1]
             if not level_part.isdigit():
+                print(f"(SUCCESS_HELP) LEVEL PART PAS BON: {level_part}")
                 return
             pid_part = event.text[len("SUCCESS_HELP_") + 2:]
             if not pid_part.isdigit() and pid_part != "LEADER":
+                print(f"(SUCCESS_HELP) PID PART PAS BON: {pid_part}")
                 return
             self._others[pid_part] = int(level_part)
             if pid_part != self._pid_to_help:
+                print(f"(SUCCESS_HELP) PID TO HELP PAS BON, pid: {pid_part}, expected: {self._pid_to_help}")
                 return
+            print(f"(SUCCESS_HELP) SUCCESS: {pid_part}")
             self._pid_to_help = ""
             self._mate_direction = None
             self._movement = Movement.RUN
@@ -164,15 +178,126 @@ class HeuristicStrategy(Strategy):
         elif self._role == Role.LEADER:
             await self._leader_loop(state, conn)
 
+
+
+    async def _leader_loop_incant(self, state: GameState, conn: ZappyConnection):
+        self._leader_can_incant_lvl_8 = True
+
+        look = await conn.send("Look")
+        if isinstance(look, LookResponse):
+            state.vision = look.tiles
+
+        await conn.send("Take food")
+
+        players_on_tile = state.vision[0].count("player") if state.vision else 0
+
+        await conn.send(f"Broadcast INCANT_{state.level}_{self._pid}")
+        if players_on_tile >= 6:
+            await self._attempt_elevation(state, conn)
+            await asyncio.sleep(1)
+
+    async def _leader_loop_get_resources(self, state: GameState, conn: ZappyConnection):
+        if self._grind_low_food:
+            if self._food >= _FOOD_LOW:
+                self._grind_low_food = False
+            await self._seek(state, conn, "food")
+            return
+        if self._food < _FOOD_CRITICAL:
+            self._grind_low_food = True
+            self._movement = Movement.RUN
+            await self._seek(state, conn, "food")
+            return
+        if not state.has_resources_for_level_3_to_8():
+            await self._explore(conn)
+        elif state.has_resources_for_level_3_to_8() and self._food >= _FOOD_LOW:
+            self._leader_can_incant_lvl_8 = True
+        else:
+            self._grind_low_food = True
+            self._movement = Movement.RUN
+            await self._seek(state, conn, "food")
+
+
+
     async def _leader_loop(self, state: GameState, conn: ZappyConnection):
-        pass
+        if state.has_resources_for_level_3_to_8() or self._leader_can_incant_lvl_8:
+            self._movement = Movement.STOP
+            await self._leader_loop_incant(state, conn)
+        else:
+            await self._leader_loop_get_resources(state, conn)
 
     async def _follower_loop(self, state: GameState, conn: ZappyConnection):
-        pass
+        if self._leader_direction is not None:
+            if self._leader_direction == 0:
+                if self._food > _FOOD_LOW:
+                    await conn.send(f"Set food")
+                    self._food -= 1
+                if self._food <= _FOOD_CRITICAL:
+                    await conn.send("Take food")
+                self._movement = Movement.STOP
+                return
+            if not self._wait_broadcast:
+                await _step_toward_direction(self._leader_direction, conn, self._movement)
+                self._wait_broadcast = True
+                return
+        else:
+            await self._seek(state, conn, "food")
 
 
     async def _solo_loop(self, state: GameState, conn: ZappyConnection):
-        pass
+        if self._grind_low_food:
+            if self._food >= _FOOD_LOW:
+                self._grind_low_food = False
+            await self._seek(state, conn, "food")
+            return
+        if self._mate_direction is not None and self._food >= _FOOD_CRITICAL:
+            if not self._wait_broadcast:
+                self._block_cpt_mate_dir = 0
+                await _step_toward_direction(self._mate_direction, conn, self._movement)
+                self._wait_broadcast = True
+            else:
+                self._block_cpt_mate_dir += 1
+                if self._block_cpt_mate_dir >= 5:
+                    self._mate_direction = None
+            return
+        elif self._mate_direction is not None and self._food < _FOOD_CRITICAL:
+            self._grind_low_food = True
+            await self._seek(state, conn, "food")
+            return
+        if state.has_resources_for_elevation() and self._level == 1:
+            await self._attempt_elevation(state, conn)
+            return
+        if state.has_resources_for_elevation() and (self._food >= _FOOD_LOW or self._start_ask_incant):
+            self._start_ask_incant = False if self._food < _FOOD_CRITICAL else True
+            if self._level == 2:
+                look = await conn.send("Look")
+                if isinstance(look, LookResponse):
+                    state.vision = look.tiles
+
+                players_on_tile = state.vision[0].count("player") if state.vision else 0
+
+                await conn.send(f"Broadcast HELP_{state.level}_{self._pid}")
+                if players_on_tile >= 2:
+                    await self._attempt_elevation(state, conn)
+                    await conn.send(f"Broadcast SUCCESS_HELP_{state.level}_{self._pid}")
+                return
+
+        if self._level == 3 and "LEADER" in list(self._others.keys()):
+            self._role = Role.FOLLOWER
+            return
+        if self._level == 3 and all(self._pid > other_pid for other_pid in list(self._others.keys()) if self._others[other_pid] == 3) and "LEADER" not in list(self._others.keys()):
+            self._pid = "LEADER"
+            await conn.send(f"Broadcast I_AM_LEADER_{self._level}_{_PID}")
+            self._role = Role.LEADER
+            return
+
+        if state.inventory.get("linemate", 0) == 0 and self._food >= _FOOD_CRITICAL:
+            await self._seek(state, conn, "linemate")
+        elif state.inventory.get("deraumere", 0) == 0 and self._food >= _FOOD_CRITICAL:
+            await self._seek(state, conn, "deraumere")
+        elif state.inventory.get("sibur", 0) == 0 and self._food >= _FOOD_CRITICAL:
+            await self._seek(state, conn, "sibur")
+        else:
+            await self._seek(state, conn, "food")
 
     async def _attempt_elevation(self, state: GameState, conn: ZappyConnection) -> bool:
         req = ELEVATION_REQUIREMENTS.get(state.level, {})
