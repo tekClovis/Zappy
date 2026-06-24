@@ -127,18 +127,12 @@ void Renderer3D::draw(const GameState& state, Rectangle area, int selected)
                    0.18f * pop, WHITE);
     }
 
-    // active incantation glow
-    for (const auto& inc : state.incantations())
-        DrawSphere({ (float)inc.x + 0.5f, 0.3f, (float)inc.y + 0.5f },
-                   0.55f, { 255, 215, 0, 90 });
-
-    // players: oriented cubes
+    // players: oriented cubes (opaque, drawn before the translucent effects so
+    // the auras blend over them instead of writing depth and hiding them)
     for (const auto& [id, p] : state.players()) {
         Color c = TEAM_COLORS[teamIndex(state, p.team) % 8];
         Vector3 pos = { p.renderX + 0.5f, 0.35f, p.renderY + 0.5f };
 
-        if (p.incanting)
-            DrawSphere(pos, 0.5f, { 255, 255, 0, 90 });
         DrawCube(pos, 0.5f, 0.5f, 0.5f, c);
         DrawCubeWires(pos, 0.5f, 0.5f, 0.5f, BLACK);
         if (id == selected)
@@ -153,6 +147,15 @@ void Renderer3D::draw(const GameState& state, Rectangle area, int selected)
         else if (p.orientation == 4) nx = -0.35f;
         DrawCube({ pos.x + nx, pos.y, pos.z + nz }, 0.18f, 0.18f, 0.18f, BLACK);
     }
+
+    // translucent effects last (after all opaque geometry)
+    for (const auto& inc : state.incantations())
+        DrawSphere({ (float)inc.x + 0.5f, 0.3f, (float)inc.y + 0.5f },
+                   0.55f, { 255, 215, 0, 90 });
+    for (const auto& [id, p] : state.players())
+        if (p.incanting)
+            DrawSphere({ p.renderX + 0.5f, 0.35f, p.renderY + 0.5f },
+                       0.5f, { 255, 255, 0, 90 });
 
     EndMode3D();
     EndScissorMode();
