@@ -61,6 +61,7 @@ class HeuristicStrategy(Strategy):
 
     def handle_event(self, event) -> None:
         if isinstance(event, CurrentLevelEvent):
+            self._respond_to_br = True
             self._level = event.level
             if self._level < 4:
                 self._leader_direction = None
