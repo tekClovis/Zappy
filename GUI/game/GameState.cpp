@@ -19,6 +19,9 @@ Player* GameState::findPlayer(int id)
 
 void GameState::resize(int w, int h)
 {
+    // the server may resend msz; don't wipe an already-sized map
+    if (w == _width && h == _height && !_map.empty())
+        return;
     _width = w;
     _height = h;
     _map.assign(h, std::vector<Tile>(w));
@@ -110,8 +113,12 @@ void GameState::killEgg(int id)
 
 void GameState::addTeam(const std::string& name)
 {
-    if (!name.empty())
-        _teams.push_back(name);
+    if (name.empty())
+        return;
+    // the server may resend tna; keep the team list unique
+    if (std::find(_teams.begin(), _teams.end(), name) != _teams.end())
+        return;
+    _teams.push_back(name);
 }
 
 void GameState::pushMessage(const std::string& msg)
@@ -167,11 +174,11 @@ void GameState::addEject(int playerId)
 
 void GameState::update(float dt)
 {
-    // entity interpolation along the shortest toroidal path
+    // entity interpolation. A move is at most one tile, so a gap bigger than
+    // that means a world wrap-around: snap to the new side (the player stays
+    // inside the map bounds) instead of sliding across/over the border.
     const float speed = 6.0f;
     float t = std::min(1.0f, speed * dt);
-    float w = (float)_width;
-    float h = (float)_height;
     for (auto& [id, p] : _players) {
         if (!p.spawned) {
             p.renderX = (float)p.x;
@@ -179,18 +186,12 @@ void GameState::update(float dt)
             p.spawned = true;
             continue;
         }
-        float dx = (float)p.x - p.renderX;
-        float dy = (float)p.y - p.renderY;
-        if (dx > w / 2.0f) dx -= w;
-        if (dx < -w / 2.0f) dx += w;
-        if (dy > h / 2.0f) dy -= h;
-        if (dy < -h / 2.0f) dy += h;
-        p.renderX += dx * t;
-        p.renderY += dy * t;
-        if (p.renderX < 0.0f) p.renderX += w;
-        if (p.renderX >= w) p.renderX -= w;
-        if (p.renderY < 0.0f) p.renderY += h;
-        if (p.renderY >= h) p.renderY -= h;
+        if (std::abs((float)p.x - p.renderX) > 1.5f)
+            p.renderX = (float)p.x;
+        if (std::abs((float)p.y - p.renderY) > 1.5f)
+            p.renderY = (float)p.y;
+        p.renderX += ((float)p.x - p.renderX) * t;
+        p.renderY += ((float)p.y - p.renderY) * t;
     }
 
     // fade out transient effects
