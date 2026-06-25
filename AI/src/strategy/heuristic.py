@@ -83,22 +83,16 @@ class HeuristicStrategy(Strategy):
         elif isinstance(event, MessageEvent) and event.text.startswith("HELP_"): # Broadcast HELP_<level>_<pid>
             level_part = event.text[len("HELP_"):len("HELP_") + 1]
             if not level_part.isdigit():
-                # print(f"(HELP) LEVEL PART PAS BON: {level_part}")
                 return
             pid_part = event.text[len("HELP_") + 2:]
             if not pid_part.isdigit() and pid_part != "LEADER":
-                # print(f"(HELP) PID PART PAS BON: {pid_part}")
                 return
             self._others[pid_part] = int(level_part)
             if int(level_part) != self._level:
-                # print(f"(HELP) PAS MON LEVEL: lvl: {level_part}, my_lvl: {self._level}")
                 return
             if self._pid_to_help != "" and pid_part != self._pid_to_help:
-                # print(f"(HELP) PID DIFFERENT DE PID TO HELP | pid_part: {pid_part}, pid_to_help: {self._pid_to_help}")
                 return
             self._pid_to_help = pid_part
-            # print("(HELP) PID TO HELP GOOD")
-            # if self._food >= _FOOD_CRITICAL or self._mate_direction is not None:
             self._mate_direction = event.direction
             self._movement = Movement.STOP if event.direction == 0 else Movement.RUN
             self._wait_broadcast = False
@@ -106,17 +100,13 @@ class HeuristicStrategy(Strategy):
         elif isinstance(event, MessageEvent) and event.text.startswith("SUCCESS_HELP_"): # Broadcast SUCCESS_HELP_<level>_<pid>
             level_part = event.text[len("SUCCESS_HELP_"):len("SUCCESS_HELP_") + 1]
             if not level_part.isdigit():
-                print(f"(SUCCESS_HELP) LEVEL PART PAS BON: {level_part}")
                 return
             pid_part = event.text[len("SUCCESS_HELP_") + 2:]
             if not pid_part.isdigit() and pid_part != "LEADER":
-                print(f"(SUCCESS_HELP) PID PART PAS BON: {pid_part}")
                 return
             self._others[pid_part] = int(level_part)
             if pid_part != self._pid_to_help:
-                print(f"(SUCCESS_HELP) PID TO HELP PAS BON, pid: {pid_part}, expected: {self._pid_to_help}")
                 return
-            print(f"(SUCCESS_HELP) SUCCESS: {pid_part}")
             self._pid_to_help = ""
             self._mate_direction = None
             self._movement = Movement.RUN
@@ -256,7 +246,7 @@ class HeuristicStrategy(Strategy):
                 self._wait_broadcast = True
             else:
                 self._block_cpt_mate_dir += 1
-                if self._block_cpt_mate_dir >= 5:
+                if self._block_cpt_mate_dir >= 50:
                     self._mate_direction = None
             return
         elif self._mate_direction is not None and self._food < _FOOD_CRITICAL:
@@ -266,7 +256,7 @@ class HeuristicStrategy(Strategy):
         if state.has_resources_for_elevation() and self._level == 1:
             await self._attempt_elevation(state, conn)
             return
-        if state.has_resources_for_elevation() and (self._food >= _FOOD_LOW or self._start_ask_incant):
+        if state.has_resources_for_elevation() and (self._food >= _FOOD_LOW or self._start_ask_incant) and all(self._pid > other_pid for other_pid in list(self._others.keys()) if self._others[other_pid] == 2):
             self._start_ask_incant = False if self._food < _FOOD_CRITICAL else True
             if self._level == 2:
                 look = await conn.send("Look")
@@ -277,17 +267,22 @@ class HeuristicStrategy(Strategy):
 
                 await conn.send(f"Broadcast HELP_{state.level}_{self._pid}")
                 if players_on_tile >= 2:
-                    await self._attempt_elevation(state, conn)
-                    await conn.send(f"Broadcast SUCCESS_HELP_{state.level}_{self._pid}")
+                    success = await self._attempt_elevation(state, conn)
+                    if success:
+                        await conn.send(f"Broadcast SUCCESS_HELP_{state.level}_{self._pid}")
                 return
 
         if self._level == 3 and "LEADER" in list(self._others.keys()):
             self._role = Role.FOLLOWER
             return
-        if self._level == 3 and all(self._pid > other_pid for other_pid in list(self._others.keys()) if self._others[other_pid] == 3) and "LEADER" not in list(self._others.keys()):
+        if self._level == 3 and "LEADER" not in list(self._others.keys()) and all(self._pid > other_pid for other_pid in list(self._others.keys()) if self._others[other_pid] == 3):
             self._pid = "LEADER"
             await conn.send(f"Broadcast I_AM_LEADER_{self._level}_{_PID}")
             self._role = Role.LEADER
+            return
+        
+        if self._food <= _FOOD_CRITICAL and self._level != 1:
+            self._grind_low_food = True
             return
 
         if state.inventory.get("linemate", 0) == 0 and self._food >= _FOOD_CRITICAL:
