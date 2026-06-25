@@ -334,15 +334,17 @@ impl Command {
         let (px, py, level) = world.players.get(&player).map(|p| (p.x, p.y, p.level))?;
         let (need_players, need_stones) = *elevation(level)?;
 
+        // Every same-level player on the tile takes part — the initiator plus the
+        // others — counted by position+level, not idleness, matching the reference's
+        // `get_incantating_player`. The headcount gates the requirement.
         let mut participants = vec![player];
         participants.extend(
             world
                 .players
                 .values()
-                .filter(|o| o.id != player && o.x == px && o.y == py && o.level == level && !o.busy)
+                .filter(|o| o.id != player && o.x == px && o.y == py && o.level == level)
                 .map(|o| o.id),
         );
-
         if participants.len() < need_players {
             return None;
         }
@@ -350,9 +352,15 @@ impl Command {
             return None;
         }
 
+        // Freeze every participant for the ritual. One caught mid-command has its
+        // in-flight action invalidated (`current_cmd = 0`) so the pending `ActionDone`
+        // becomes a no-op and the queued command re-runs once unfrozen — this keeps it
+        // from walking off the tile and failing the end-of-cast headcount (the level-6
+        // ceiling).
         for &id in &participants[1..] {
             if let Some(o) = world.players.get_mut(&id) {
                 o.busy = true;
+                o.current_cmd = 0;
             }
         }
         world
@@ -389,15 +397,11 @@ impl Command {
             }
         }
 
-        let still_on_tile = |w: &World, id: &u32| {
-            w.players
-                .get(id)
-                .is_some_and(|p| p.level == level && p.x == px && p.y == py)
-        };
-        let present: Vec<u32> = participants
-            .iter()
-            .copied()
-            .filter(|id| still_on_tile(world, id))
+        let present: Vec<u32> = world
+            .players
+            .values()
+            .filter(|p| p.level == level && p.x == px && p.y == py)
+            .map(|p| p.id)
             .collect();
 
         let Some(&(need_players, need_stones)) = elevation(level) else {
@@ -523,5 +527,62 @@ mod tests {
         let (reply, gui) = Command::Broadcast("hello world".to_string()).run(&mut w, id);
         assert_eq!(reply, "ok");
         assert!(gui.contains(&format!("pbc #{id} hello world")));
+    }
+
+    /// Regression: a 6->7 incantation needs six players. It must elevate all of
+    /// them even when some are mid-command — those participants are frozen and
+    /// their in-flight action is invalidated so they cannot walk off the tile and
+    /// fail the end-of-cast headcount (the old level-6 ceiling).
+    #[test]
+    fn incantation_elevates_six_including_busy_players() {
+        let mut w = World::new(5, 5, &names(&["t1"]), 6);
+        let ids: Vec<u32> = (0..6)
+            .map(|_| w.add_player("t1").expect("a free egg").0)
+            .collect();
+        let _ = w.take_outbox(); // drain spawn events
+
+        // Gather all six on one tile at level 6.
+        for &id in &ids {
+            let p = w.players.get_mut(&id).unwrap();
+            (p.x, p.y, p.level) = (2, 2, 6);
+        }
+        // Stones for 6 -> 7: linemate 1, deraumere 2, sibur 3, phiras 1.
+        let tile = w.map.tile_mut(2, 2);
+        tile.add(Resource::Linemate, 1);
+        tile.add(Resource::Deraumere, 2);
+        tile.add(Resource::Sibur, 3);
+        tile.add(Resource::Phiras, 1);
+
+        // Two non-initiators are mid-command (each just started a Forward).
+        for &id in &ids[1..3] {
+            assert!(w.enqueue_command(id, "Forward").is_ok());
+            w.start_next(id).expect("starts the queued Forward");
+            assert!(w.players[&id].busy && w.players[&id].current_cmd != 0);
+        }
+
+        // Initiator casts.
+        let actor = ids[0];
+        assert!(w.enqueue_command(actor, "Incantation").is_ok());
+        w.start_next(actor).expect("starts the incantation");
+        let (level, xy, participants) =
+            Command::incantation_start(&mut w, actor).expect("requirements met");
+        assert_eq!(level, 6);
+        assert_eq!(participants.len(), 6, "all six on the tile participate");
+        // Every other participant is frozen, busy ones with their action voided.
+        for &id in &ids[1..] {
+            assert!(w.players[&id].busy, "participant frozen");
+            assert_eq!(
+                w.players[&id].current_cmd, 0,
+                "in-flight action invalidated"
+            );
+        }
+
+        Command::incantation_finish(&mut w, xy, level, &participants);
+        for &id in &ids {
+            assert_eq!(w.players[&id].level, 7, "player #{id} reached level 7");
+        }
+        // The interrupted Forward survived to re-run and never moved its caster.
+        assert_eq!(w.players[&ids[1]].queue.front(), Some(&Command::Forward));
+        assert_eq!((w.players[&ids[1]].x, w.players[&ids[1]].y), (2, 2));
     }
 }
