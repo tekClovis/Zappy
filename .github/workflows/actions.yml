@@ -56,7 +56,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: install python dependencies
-        run: pip3 install pytest pytest-asyncio
+        run: python3 -m pip install pytest pytest-asyncio
         shell: bash
       - name: make tests_run
         run: timeout 2m make tests_run
