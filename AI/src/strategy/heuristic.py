@@ -17,7 +17,7 @@ from ..state.game_state import ELEVATION_REQUIREMENTS, GameState
 from .base import Strategy
 
 _FOOD_CRITICAL = 20
-_FOOD_LOW = 40
+_FOOD_LOW = 30
 _SCAN_INTERVAL = 2
 
 class Role:
@@ -45,6 +45,8 @@ class HeuristicStrategy(Strategy):
         self._respond_to_br = False
         self._grind_low_food = False
         self._block_cpt_mate_dir = 0
+        self._team_name = ""
+        self._starved_to_death = False
 
         # LEADER
         self._leader_can_incant_lvl_8 = False
@@ -69,12 +71,15 @@ class HeuristicStrategy(Strategy):
             else:
                 self._leader_direction = 0
             self._elevation_done.set()
-        
-        elif isinstance(event, MessageEvent) and event.text.startswith("PLAYER_"): # Broadcast PLAYER_<level>_<pid>
+
+        elif isinstance(event, MessageEvent) and event.text.startswith("PLAYER_"): # Broadcast PLAYER_<level>_<team_name>_<pid>
             level_part = event.text[len("PLAYER_"):len("PLAYER_") + 1]
             if not level_part.isdigit():
                 return
-            pid_part = event.text[len("PLAYER_") + 2:]
+            teamname_part = event.text[len("PLAYER_") + 2:len("PLAYER_") + 2 + len(self._team_name)]
+            if teamname_part != self._team_name:
+                return
+            pid_part = event.text[len("PLAYER_") + len(self._team_name) + 3:]
             if not pid_part.isdigit() and pid_part != "LEADER":
                 return
             if pid_part not in list(self._others.keys()):
@@ -115,7 +120,7 @@ class HeuristicStrategy(Strategy):
             self._movement = Movement.STOP if event.direction == 0 else Movement.RUN
             self._wait_broadcast = False
         
-        elif isinstance(event, MessageEvent) and event.text.startswith("HELP2_"): # Broadcast HELP_<recPID>_<level>_<pid>
+        elif isinstance(event, MessageEvent) and event.text.startswith("HELP2_"): # Broadcast HELP2_<recPID>_<level>_<pid>
             my_pid = event.text[len("HELP2_"):len("HELP2_") + len(self._pid)]
             if my_pid != self._pid:
                 return
@@ -146,11 +151,14 @@ class HeuristicStrategy(Strategy):
             self._movement = Movement.RUN
             self._wait_broadcast = True
 
-        elif isinstance(event, MessageEvent) and event.text.startswith("I_AM_LEADER_") and self._role != Role.LEADER: # Broadcast I_AM_LEADER_<level>_<pid>
+        elif isinstance(event, MessageEvent) and event.text.startswith("I_AM_LEADER_") and self._role != Role.LEADER: # Broadcast I_AM_LEADER_<level>_<team_name>_<pid>
             level_part = event.text[len("I_AM_LEADER_"):len("I_AM_LEADER_") + 1]
             if not level_part.isdigit():
                 return
-            pid_part = event.text[len("I_AM_LEADER_") + 2:]
+            teamname_part = event.text[len("I_AM_LEADER_") + 2:len("I_AM_LEADER_") + 2 + len(self._team_name)]
+            if teamname_part != self._team_name:
+                return
+            pid_part = event.text[len("I_AM_LEADER_") + len(self._team_name) + 3:]
             if not pid_part.isdigit():
                 return
             if pid_part in list(self._others.keys()):
@@ -159,6 +167,13 @@ class HeuristicStrategy(Strategy):
             self._pid_leader = "LEADER"
             if self._level >= 3:
                 self._role = Role.FOLLOWER
+        
+        elif isinstance(event, MessageEvent) and event.text.startswith("I_AM_DEAD_"): # Broadcast I_AM_DEAD_<pid>
+            pid_part = event.text[len("I_AM_DEAD_"):]
+            if not pid_part.isdigit() and pid_part != "LEADER":
+                return
+            if pid_part in list(self._others.keys()):
+                self._others.pop(pid_part)
 
         elif isinstance(event, MessageEvent) and event.text.startswith("INCANT_") and self._role != Role.LEADER and self._level >= 3: # Broadcast INCANT_<level>_<pid>
             level_part = event.text[len("INCANT_"):len("INCANT_") + 1]
@@ -179,13 +194,31 @@ class HeuristicStrategy(Strategy):
             self._wait_broadcast = False
 
     async def tick(self, state: GameState, conn: ZappyConnection) -> None:
+        if self._level == 8:
+            return
+        self._team_name = conn._team_name
         if self._cpt == 0 or self._respond_to_br:
-            await conn.send(f"Broadcast PLAYER_{self._level}_{self._pid}")
+            await conn.send(f"Broadcast PLAYER_{self._level}_{self._team_name}_{self._pid}")
             self._respond_to_br = False
         self._cpt += 1
 
         await self._refresh(state, conn)
         self._food = state.inventory.get("food", 0)
+
+        if self._starved_to_death:
+            if self._food >= _FOOD_CRITICAL:
+                self._starved_to_death = False
+                await conn.send(f"Broadcast PLAYER_{self._level}_{self._team_name}_{self._pid}")
+                return
+            self._role = Role.SOLO
+            self._movement = Movement.RUN
+            await self._seek(state, conn, "food")
+            return
+
+        if self._food <= 2:
+            self._starved_to_death = True
+            await conn.send(f"Broadcast I_AM_DEAD_{self._pid}")
+            return
 
         print(f"[{self._pid}] {self._role} -> {self._movement} | lvl: {state.level} | food: {self._food} | Ldir: {self._leader_direction} | Mdir: {self._mate_direction} | PID_to_help: {self._pid_to_help} | others: {self._others}")
 
@@ -204,8 +237,17 @@ class HeuristicStrategy(Strategy):
 
 
 
+
     async def _leader_loop_incant(self, state: GameState, conn: ZappyConnection):
         self._leader_can_incant_lvl_8 = True
+
+        if self._level == 3:
+            players_at_lvl3 = sum(1 for lvl in self._others.values() if lvl == 3) + 1
+
+            if players_at_lvl3 < 6:
+                self._movement = Movement.RUN
+                await self._seek(state, conn, "food")
+                return
 
         look = await conn.send("Look")
         if isinstance(look, LookResponse):
@@ -243,6 +285,14 @@ class HeuristicStrategy(Strategy):
 
 
     async def _leader_loop(self, state: GameState, conn: ZappyConnection):
+        if self._food <= 5:
+            self._role = Role.SOLO
+            self._movement = Movement.RUN
+            self._leader_can_incant_lvl_8 = False
+            self._setted_down_resources = False
+            self._grind_low_food = True
+            self._starved_to_death = True
+            await conn.send(f"Broadcast I_AM_DEAD_{self._pid}")
         if state.has_resources_for_level_3_to_8() or self._leader_can_incant_lvl_8:
             self._movement = Movement.STOP
             await self._leader_loop_incant(state, conn)
@@ -300,16 +350,19 @@ class HeuristicStrategy(Strategy):
 
                 await self._check_players_max_on_map(state, conn)
 
+                if self._helper_pid == "":
+                    await conn.send(f"Broadcast HELP_{state.level}_{self._pid}")
+                else:
+                    await conn.send(f"Broadcast HELP2_{self._helper_pid}_{state.level}_{self._pid}")
+
                 look = await conn.send("Look")
                 if isinstance(look, LookResponse):
                     state.vision = look.tiles
 
                 players_on_tile = state.vision[0].count("player") if state.vision else 0
-
-                if self._helper_pid == "":
-                    await conn.send(f"Broadcast HELP_{state.level}_{self._pid}")
-                else:
-                    await conn.send(f"Broadcast HELP2_{self._helper_pid}_{state.level}_{self._pid}")
+                if players_on_tile > 2:
+                    await conn.send("Eject")
+                    return
                 if players_on_tile == 2:
                     success = await self._attempt_elevation(state, conn)
                     if success:
@@ -323,7 +376,7 @@ class HeuristicStrategy(Strategy):
             return
         if self._level == 3 and "LEADER" not in list(self._others.keys()) and all(self._pid > other_pid for other_pid in list(self._others.keys()) if self._others[other_pid] == 3):
             self._pid = "LEADER"
-            await conn.send(f"Broadcast I_AM_LEADER_{self._level}_{_PID}")
+            await conn.send(f"Broadcast I_AM_LEADER_{self._level}_{self._team_name}_{_PID}")
             self._role = Role.LEADER
             return
         
@@ -366,13 +419,17 @@ class HeuristicStrategy(Strategy):
         if isinstance(look, LookResponse):
             state.vision = look.tiles
 
+        players_on_tile = state.vision[0].count("player") if state.vision else 0
+        if self._level == 2 and players_on_tile > 2:
+            return False
+
         self._elevation_done.clear()
         result = await conn.send("Incantation")
 
         if result is ServerMsg.ELEVATION_UNDERWAY:
             try:
                 await asyncio.wait_for(self._elevation_done.wait(), timeout=float(300/state.freq + 10))
-                await conn.send(f"Broadcast PLAYER_{self._level}_{self._pid}")
+                await conn.send(f"Broadcast PLAYER_{self._level}_{self._team_name}_{self._pid}")
                 self._setted_down_resources = False
                 return True
             except asyncio.TimeoutError:

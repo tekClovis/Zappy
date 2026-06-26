@@ -46,7 +46,10 @@ class ZappyConnection:
             self._writer.close()
             raise ConnectionError("no_slot")
         client_num = int(client_num_str)
-        x, y = map(int, (await _tread()).split())
+        map_dim = await _tread()
+        if not map_dim:
+            return client_num, None, None
+        x, y = map(int, map_dim.split())
 
         self._reader_task = asyncio.create_task(self._reader_loop(), name="zappy-reader")
         return client_num, x, y
