@@ -72,6 +72,21 @@ clean:
 fclean: clean
 	rm -f $(SERV_BIN) $(AI_BIN) $(GUI_BIN)
 
+tests_run:
+	$(MAKE) $(MAKEFLAGS) tests_ai
+	$(MAKE) $(MAKEFLAGS) tests_server
+	$(MAKE) $(MAKEFLAGS) tests_gui
+
+tests_ai:
+	cd AI && python3 -m pytest tests/ -v
+
+tests_server:
+	cargo test --manifest-path $(SERV_MANIFEST)
+
+tests_gui:
+	@echo "No GUI tests yet"
+
 re: fclean all
 
-.PHONY: all fast zappy_server zappy_ai zappy_gui debug clean fclean re
+.PHONY: all fast zappy_server zappy_ai zappy_gui debug clean fclean re \
+        tests_run tests_ai tests_server tests_gui

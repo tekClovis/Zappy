@@ -44,26 +44,29 @@ jobs:
         run: make clean
         shell: bash
   
-  # run_tests:
-  #   if: github.repository != 'EpitechPGEPromo2029/B-DOP-200-REN-2-1-chocolatine-clovis.nedelec'
-  #   needs:
-  #     - check_program_compilation
-  #   runs-on: ubuntu-latest
-  #   container: epitechcontent/epitest-docker:latest
-  #   steps:
-  #     - name: fetching
-  #       uses: actions/checkout@v4
-  #       with:
-  #         fetch-depth: ${{ github.ref }}
-  #     - name: make tests_run
-  #       run: |
-  #         cd $(pwd)
-  #         timeout 2m make tests_run
+  run_tests:
+    if: github.repository != 'EpitechPGE2-2025/G-YEP-400-LIL-4-1-zappy-11'
+    needs:
+      - check_program_compilation
+    runs-on: ubuntu-latest
+    container: epitechcontent/epitest-docker:latest
+    steps:
+      - name: fetching
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: install python dependencies
+        run: pip3 install pytest pytest-asyncio
+        shell: bash
+      - name: make tests_run
+        run: timeout 2m make tests_run
+        shell: bash
 
   push_to_mirror:
     if: ${{ github.repository != 'EpitechPGE2-2025/G-YEP-400-LIL-4-1-zappy-11' && github.event_name == 'push' }}
     needs:
       - check_program_compilation
+      - run_tests
     runs-on: ubuntu-latest
     steps:
       - name: fetching
