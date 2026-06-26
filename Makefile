@@ -78,7 +78,7 @@ tests_run:
 	$(MAKE) $(MAKEFLAGS) tests_gui
 
 tests_ai:
-	cd AI && python3 -m pytest tests/ -v
+	@if [ -d AI/tests ]; then cd AI && python3 -m pytest tests/ -v; else echo "No AI tests yet"; fi
 
 tests_server:
 	cargo test --manifest-path $(SERV_MANIFEST)
