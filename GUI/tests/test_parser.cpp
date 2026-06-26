@@ -12,12 +12,20 @@
 
 static int _pass = 0;
 static int _fail = 0;
+static bool _test_failed = false;
 
 #define CHECK(cond) \
     do { \
         if (cond) { _pass++; } \
-        else { _fail++; \
-            std::cerr << "FAIL: " #cond " (line " << __LINE__ << ")\n"; } \
+        else { _fail++; _test_failed = true; \
+            std::cerr << "    FAIL: " #cond " (line " << __LINE__ << ")\n"; } \
+    } while (0)
+
+#define RUN(fn) \
+    do { \
+        _test_failed = false; \
+        fn(); \
+        std::cout << (_test_failed ? "[ FAIL ] " : "[ OK   ] ") << #fn << "\n"; \
     } while (0)
 
 
@@ -378,41 +386,42 @@ static void test_unknown_tag_ignored()
 
 int main()
 {
-    test_resize_sets_dimensions();
-    test_resize_tiles_zeroed();
-    test_resize_idempotent();
-    test_msz_sets_size();
-    test_bct_sets_tile_resources();
-    test_bct_out_of_bounds_ignored();
-    test_tna_registers_teams();
-    test_tna_deduplicates();
-    test_pnw_registers_player();
-    test_ppo_updates_position();
-    test_ppo_unknown_player_ignored();
-    test_plv_updates_level();
-    test_pin_updates_inventory();
-    test_pic_marks_players_incanting();
-    test_pie_clears_incanting_on_tile();
-    test_pie_adds_incant_result();
-    test_pdr_adds_resource_to_tile();
-    test_pgt_removes_resource_from_tile();
-    test_pgt_does_not_go_below_zero();
-    test_pdi_removes_player();
-    test_enw_adds_egg();
-    test_ebo_removes_egg_on_hatch();
-    test_edi_removes_egg_on_death();
-    test_sgt_sets_time_unit();
-    test_sst_updates_time_unit();
-    test_seg_sets_game_over();
-    test_pex_adds_eject_effect();
-    test_pbc_adds_broadcast();
-    test_smg_pushes_server_message();
-    test_suc_pushes_error_message();
-    test_sbp_pushes_error_message();
-    test_empty_line_ignored();
-    test_short_line_ignored();
-    test_unknown_tag_ignored();
-
-    std::cout << _pass << " passed, " << _fail << " failed\n";
+    std::cout << "========== GUI unit tests ==========\n";
+    RUN(test_resize_sets_dimensions);
+    RUN(test_resize_tiles_zeroed);
+    RUN(test_resize_idempotent);
+    RUN(test_msz_sets_size);
+    RUN(test_bct_sets_tile_resources);
+    RUN(test_bct_out_of_bounds_ignored);
+    RUN(test_tna_registers_teams);
+    RUN(test_tna_deduplicates);
+    RUN(test_pnw_registers_player);
+    RUN(test_ppo_updates_position);
+    RUN(test_ppo_unknown_player_ignored);
+    RUN(test_plv_updates_level);
+    RUN(test_pin_updates_inventory);
+    RUN(test_pic_marks_players_incanting);
+    RUN(test_pie_clears_incanting_on_tile);
+    RUN(test_pie_adds_incant_result);
+    RUN(test_pdr_adds_resource_to_tile);
+    RUN(test_pgt_removes_resource_from_tile);
+    RUN(test_pgt_does_not_go_below_zero);
+    RUN(test_pdi_removes_player);
+    RUN(test_enw_adds_egg);
+    RUN(test_ebo_removes_egg_on_hatch);
+    RUN(test_edi_removes_egg_on_death);
+    RUN(test_sgt_sets_time_unit);
+    RUN(test_sst_updates_time_unit);
+    RUN(test_seg_sets_game_over);
+    RUN(test_pex_adds_eject_effect);
+    RUN(test_pbc_adds_broadcast);
+    RUN(test_smg_pushes_server_message);
+    RUN(test_suc_pushes_error_message);
+    RUN(test_sbp_pushes_error_message);
+    RUN(test_empty_line_ignored);
+    RUN(test_short_line_ignored);
+    RUN(test_unknown_tag_ignored);
+    std::cout << "====================================\n";
+    std::cout << _pass << " checks passed, " << _fail << " failed\n";
     return _fail > 0 ? 1 : 0;
 }
