@@ -57,6 +57,7 @@ class HeuristicStrategy(Strategy):
         self._mate_direction = None
         self._start_ask_incant = False
         self._pid_to_help = ""
+        self._helper_pid = ""
 
 
     def handle_event(self, event) -> None:
@@ -81,6 +82,22 @@ class HeuristicStrategy(Strategy):
             level = int(level_part)
             self._others[pid_part] = level
 
+        elif isinstance(event, MessageEvent) and event.text.startswith("HERE_FOR_HELP_"): # Broadcast HERE_FOR_HELP_<recPID>_<level>_<pid>
+            my_pid = event.text[len("HERE_FOR_HELP_"):len("HERE_FOR_HELP_") + len(self._pid)]
+            if my_pid != self._pid:
+                return
+            level_part = event.text[len("HERE_FOR_HELP_") + len(self._pid) + 1:len("HERE_FOR_HELP_") + len(self._pid) + 2]
+            if not level_part.isdigit():
+                return
+            pid_part = event.text[len("HERE_FOR_HELP_") + len(self._pid) + 3:]
+            if not pid_part.isdigit() and pid_part != "LEADER":
+                return
+            self._others[pid_part] = int(level_part)
+            if int(level_part) != self._level:
+                return
+            if self._helper_pid == "":
+                self._helper_pid = pid_part
+
         elif isinstance(event, MessageEvent) and event.text.startswith("HELP_"): # Broadcast HELP_<level>_<pid>
             level_part = event.text[len("HELP_"):len("HELP_") + 1]
             if not level_part.isdigit():
@@ -93,6 +110,22 @@ class HeuristicStrategy(Strategy):
                 return
             if self._pid_to_help != "" and pid_part != self._pid_to_help:
                 return
+            self._pid_to_help = pid_part
+            self._mate_direction = event.direction
+            self._movement = Movement.STOP if event.direction == 0 else Movement.RUN
+            self._wait_broadcast = False
+        
+        elif isinstance(event, MessageEvent) and event.text.startswith("HELP2_"): # Broadcast HELP_<recPID>_<level>_<pid>
+            my_pid = event.text[len("HELP2_"):len("HELP2_") + len(self._pid)]
+            if my_pid != self._pid:
+                return
+            level_part = event.text[len("HELP2_") + len(self._pid) + 1:len("HELP2_") + len(self._pid) + 2]
+            if not level_part.isdigit():
+                return
+            pid_part = event.text[len("HELP2_") + len(self._pid) + 3:]
+            if not pid_part.isdigit() and pid_part != "LEADER":
+                return
+            self._others[pid_part] = int(level_part)
             self._pid_to_help = pid_part
             self._mate_direction = event.direction
             self._movement = Movement.STOP if event.direction == 0 else Movement.RUN
@@ -235,6 +268,8 @@ class HeuristicStrategy(Strategy):
 
 
     async def _solo_loop(self, state: GameState, conn: ZappyConnection):
+        if self._mate_direction == 0:
+            await conn.send(f"Broadcast HERE_FOR_HELP_{self._pid_to_help}_{state.level}_{self._pid}")
         if self._grind_low_food:
             if self._food >= _FOOD_LOW:
                 self._grind_low_food = False
@@ -249,6 +284,8 @@ class HeuristicStrategy(Strategy):
                 self._block_cpt_mate_dir += 1
                 if self._block_cpt_mate_dir >= 50:
                     self._mate_direction = None
+                    self._pid_to_help = ""
+                    self._movement = Movement.RUN
             return
         elif self._mate_direction is not None and self._food < _FOOD_CRITICAL:
             self._grind_low_food = True
@@ -266,10 +303,15 @@ class HeuristicStrategy(Strategy):
 
                 players_on_tile = state.vision[0].count("player") if state.vision else 0
 
-                await conn.send(f"Broadcast HELP_{state.level}_{self._pid}")
-                if players_on_tile >= 2:
+                if self._helper_pid == "":
+                    await conn.send(f"Broadcast HELP_{state.level}_{self._pid}")
+                else:
+                    await conn.send(f"Broadcast HELP2_{self._helper_pid}_{state.level}_{self._pid}")
+                if players_on_tile == 2:
                     success = await self._attempt_elevation(state, conn)
                     if success:
+                        self._start_ask_incant = False
+                        self._helper_pid = ""
                         await conn.send(f"Broadcast SUCCESS_HELP_{state.level}_{self._pid}")
                 return
 
