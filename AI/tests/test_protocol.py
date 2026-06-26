@@ -5,7 +5,6 @@
 ## test_protocol.py
 ##
 
-import pytest
 from src.client.protocol import (
     parse_response,
     parse_unsolicited,
