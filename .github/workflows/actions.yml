@@ -43,7 +43,7 @@ jobs:
       - name: make clean
         run: make clean
         shell: bash
-  
+
   run_tests:
     if: github.repository != 'EpitechPGE2-2025/G-YEP-400-LIL-4-1-zappy-11'
     needs:
@@ -56,7 +56,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: install python dependencies
-        run: python3 -m pip install pytest pytest-asyncio
+        run: |
+          apt-get install -y --no-install-recommends python3-pip
+          python3 -m pip install pytest pytest-asyncio
         shell: bash
       - name: make tests_run
         run: timeout 2m make tests_run
