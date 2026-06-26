@@ -58,8 +58,8 @@ jobs:
       - name: install python dependencies
         run: |
           curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-          python3 get-pip.py
-          python3 -m pip install pytest pytest-asyncio
+          python3 get-pip.py --break-system-packages
+          python3 -m pip install --break-system-packages pytest pytest-asyncio
         shell: bash
       - name: make tests_run
         run: timeout 2m make tests_run
