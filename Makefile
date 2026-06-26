@@ -84,7 +84,9 @@ tests_server:
 	cargo test --manifest-path $(SERV_MANIFEST)
 
 tests_gui:
-	@echo "No GUI tests yet"
+	@if [ -d GUI/tests ]; then \
+		g++ -std=c++20 -I./GUI GUI/tests/test_parser.cpp GUI/game/GameState.cpp GUI/protocol/Commands.cpp GUI/protocol/Dispatcher.cpp -o /tmp/test_zappy_gui && /tmp/test_zappy_gui; \
+	else echo "No GUI tests yet"; fi
 
 re: fclean all
 
