@@ -297,6 +297,9 @@ class HeuristicStrategy(Strategy):
         if state.has_resources_for_elevation() and (self._food >= _FOOD_LOW or self._start_ask_incant) and all(self._pid > other_pid for other_pid in list(self._others.keys()) if self._others[other_pid] == 2):
             self._start_ask_incant = False if self._food < _FOOD_CRITICAL else True
             if self._level == 2:
+
+                await self._check_players_max_on_map(state, conn)
+
                 look = await conn.send("Look")
                 if isinstance(look, LookResponse):
                     state.vision = look.tiles
@@ -336,6 +339,17 @@ class HeuristicStrategy(Strategy):
             await self._seek(state, conn, "sibur")
         else:
             await self._seek(state, conn, "food")
+    
+    async def _check_players_max_on_map(self, state: GameState, conn: ZappyConnection):
+        players_on_map = len(self._others) + 1
+
+        if players_on_map < 6:
+            player_can_connect_str = await conn.send("Connect_nbr")
+            player_can_connect = int(player_can_connect_str) if player_can_connect_str != "ko" else 0
+            diff = 6 - (players_on_map + player_can_connect) if (players_on_map + player_can_connect) <= 6 else 0
+
+            for _ in range(diff):
+                await conn.send("Fork")
 
     async def _attempt_elevation(self, state: GameState, conn: ZappyConnection) -> bool:
         req = ELEVATION_REQUIREMENTS.get(state.level, {})
