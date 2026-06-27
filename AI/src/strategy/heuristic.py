@@ -186,7 +186,7 @@ class HeuristicStrategy(Strategy):
             if not pid_part.isdigit() and pid_part != "LEADER":
                 return
             self._others[pid_part] = int(level_part)
-            if int(level_part) != self._level or pid_part != self._pid_leader:
+            if int(level_part) != self._level or pid_part != "LEADER":
                 return
             self._leader_direction = event.direction
             self._role = Role.FOLLOWER
