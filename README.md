@@ -167,7 +167,7 @@ de vie. Un joueur démarre avec 10 unités de vie (1260 unités de temps, soit `
 
 Pour monter de niveau, des joueurs **de même niveau** (peu importe l'équipe) doivent se réunir
 sur une même case avec les ressources requises, puis lancer `Incantation`. La vérification des
-conditions se fait **au début ET à la fin** du rituel — si elles ne sont plus respectées, le
+conditions se fait **au début ET à la fin** du rituel si elles ne sont plus respectées, le
 rituel échoue. Pendant l'incantation, **tous les participants sont figés**.
 
 | Élévation | Joueurs requis | linemate | deraumere | sibur | mendiane | phiras | thystame |
@@ -233,7 +233,7 @@ La commande `Fork` pond un œuf et libère un nouveau slot de connexion pour l'�
 | Slots libres de l'équipe | `Connect_nbr` | - | valeur |
 | Pondre un œuf | `Fork` | 42/f | `ok` |
 | Éjecter les autres joueurs | `Eject` | 7/f | `ok` / `ko` |
-| Mort du joueur | — | - | `dead` |
+| Mort du joueur | - | - | `dead` |
 | Ramasser un objet | `Take <objet>` | 7/f | `ok` / `ko` |
 | Déposer un objet | `Set <objet>` | 7/f | `ok` / `ko` |
 | Lancer une incantation | `Incantation` | 300/f | `Elevation underway / Current level: k` / `ko` |

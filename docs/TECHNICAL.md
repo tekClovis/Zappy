@@ -65,7 +65,7 @@ Deux seuils pilotent tout le comportement :
 
 ### 3.3 Exploration et collecte
 
-Quand aucune coordination n'est en cours, l'IA explore en avançant tout en tournant périodiquement (motif gauche/droite) et choisit, dans son champ de vision, la **meilleure case candidate** pour une ressource donnée : un score combine la quantité de ressources sur la case, la distance (pénalité par ligne et par colonne) et un bonus pour les cases dans l'axe central — avec une pondération renforcée pour la nourriture quand le stock est critique.
+Quand aucune coordination n'est en cours, l'IA explore en avançant tout en tournant périodiquement (motif gauche/droite) et choisit, dans son champ de vision, la **meilleure case candidate** pour une ressource donnée : un score combine la quantité de ressources sur la case, la distance (pénalité par ligne et par colonne) et un bonus pour les cases dans l'axe central avec une pondération renforcée pour la nourriture quand le stock est critique.
 
 ### 3.4 Montée de niveau 1 → 2 : en solo
 
@@ -82,9 +82,9 @@ C'est le cœur de la stratégie, et l'explication de la rapidité observée en j
 1. **Élection** : le premier joueur niveau 3 qui ne voit aucun leader annoncé, et qui a le plus grand identifiant parmi les joueurs niveau 3 connus, s'auto-proclame `LEADER` (`Broadcast I_AM_LEADER_<level>_<pid>`). Ce critère évite que deux joueurs s'élisent leader en même temps.
 2. **Ravitaillement massif** : au lieu de ne récolter que les ressources du palier en cours, le leader accumule **la somme cumulée des besoins des paliers 3→4 jusqu'à 7→8** (9 linemate, 8 deraumere, 10 sibur, 5 mendiane, 6 phiras, 1 thystame). Une fois ce stock complet, il n'aura plus jamais besoin de ressortir chercher des pierres.
 3. **Ralliement** : le leader diffuse en boucle `Broadcast INCANT_<level>_<pid>`. Chaque `FOLLOWER` niveau ≥3 calcule, grâce à la direction sonore renvoyée par le serveur, le chemin le plus court vers le leader et avance jusqu'à atteindre sa case (direction `0`).
-4. **Incantations en chaîne** : dès que 6 joueurs sont réunis sur la case du leader, celui-ci pose lui-même les ressources nécessaires (`Set <ressource>`, prélevées sur son propre inventaire — les followers n'ont donc pas besoin de porter de pierres) et lance `Incantation`. Le groupe entier monte d'un niveau (1→2... non, 3→4 ici) **en une seule case**, sans jamais se disperser, puis recommence immédiatement le palier suivant (4→5, 5→6, 6→7, 7→8) avec le même groupe et le même stock de ressources.
+4. **Incantations en chaîne** : dès que 6 joueurs sont réunis sur la case du leader, celui-ci pose lui-même les ressources nécessaires (`Set <ressource>`, prélevées sur son propre inventaire, les followers n'ont donc pas besoin de porter de pierres) et lance `Incantation`. Le groupe entier monte d'un niveau (1→2... non, 3→4 ici) **en une seule case**, sans jamais se disperser, puis recommence immédiatement le palier suivant (4→5, 5→6, 6→7, 7→8) avec le même groupe et le même stock de ressources.
 
-Cette mise en commun des ressources par un seul "porteur" est ce qui permet à toute une équipe de passer du niveau 3 au niveau 8 en une seule réunion, sans aller-retours répétés — d'où la performance observée d'environ **100 secondes pour atteindre le niveau 8** (`f=100`).
+Cette mise en commun des ressources par un seul "porteur" est ce qui permet à toute une équipe de passer du niveau 3 au niveau 8 en une seule réunion, sans aller-retours répétés, d'où la performance observée d'environ **100 secondes pour atteindre le niveau 8** (`f=100`).
 
 ### 3.7 Partage de nourriture pendant le rassemblement
 
@@ -94,7 +94,7 @@ Pendant qu'ils attendent sur la case du leader (potentiellement longtemps, le te
 
 ## 4. Les broadcasts de l'IA
 
-Tous les messages texte envoyés par `Broadcast` suivent une convention `MOT-CLÉ_<arguments>`, interprétée par chaque IA réceptrice. Le destinataire connaît uniquement la **direction** sonore (0 à 8, fournie par le serveur) et le texte — jamais l'identité réelle de l'émetteur ; c'est donc le contenu du message qui sert de "carte de visite".
+Tous les messages texte envoyés par `Broadcast` suivent une convention `MOT-CLÉ_<arguments>`, interprétée par chaque IA réceptrice. Le destinataire connaît uniquement la **direction** sonore (0 à 8, fournie par le serveur) et le texte, jamais l'identité réelle de l'émetteur ; c'est donc le contenu du message qui sert de "carte de visite".
 
 | Broadcast | Émetteur / déclencheur | Rôle |
 |-|-|-|
