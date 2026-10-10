@@ -2,6 +2,10 @@
 
 > simulation d'un monde multijoueur sur **Trantor**
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tekClovis/tekClovis/main/gif/zappy.gif" width="640" alt="Zappy" />
+</p>
+
 ## À propos
 
 **Zappy** est un jeu en réseau dans lequel plusieurs équipes s'affrontent sur une carte de cases truffée de ressources. Chaque joueur est piloté par une IA autonome qui doit se nourrir, explorer, récolter des pierres et accomplir des rituels d'élévation pour grimper dans la hiérarchie Trantorienne.
